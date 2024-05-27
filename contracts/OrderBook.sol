@@ -129,6 +129,9 @@ contract OrderBook is Ownable, ReentrancyGuard {
         uint32 validUntil,
         uint[] calldata orderIdsToFill
     ) public nonReentrant returns (uint orderId) {
+        // BEGIN-DEBUG
+        uint startSubmitOrderGas = gasleft();
+        // END-DEBUG
         require(validUntil > block.timestamp, "Invalid validUntil");
         require(amount > 0, "Invalid amount");
         require(price > 0, "Invalid price");
@@ -170,12 +173,15 @@ contract OrderBook is Ownable, ReentrancyGuard {
                         orderId, msg.sender, order.receivedAmt, amount, order.feeAmt,
                         side, OrderCloseReason.FILLED
                     );
+                    // BEGIN-DEBUG
+                    console.log("Fill order %d cost %d gas", orderIdsToFill[i], startGas - gasleft());
+                    console.log("Submit order %d total %d gas", orderId, startSubmitOrderGas - gasleft());
+                    // END-DEBUG
                     return orderId;
                 }
 
                 // BEGIN-DEBUG
-                uint gasCost = startGas - gasleft();
-                console.log("Fill order %d cost %d gas", orderIdsToFill[i], gasCost);
+                console.log("Fill order %d cost %d gas", orderIdsToFill[i], startGas - gasleft());
                 // END-DEBUG
 
                 unchecked {i++;}
@@ -190,6 +196,9 @@ contract OrderBook is Ownable, ReentrancyGuard {
         } else {
             user.spendingBase += order.unfilledAmt;
         }
+        // BEGIN-DEBUG
+        console.log("Submit order %d total %d gas", orderId, startSubmitOrderGas - gasleft());
+        // END-DEBUG
         return orderId;
     }
 
@@ -442,10 +451,9 @@ contract OrderBook is Ownable, ReentrancyGuard {
         );
 
         // BEGIN-DEBUG
-        console.log("Order closed id = %d", order.id);
-        console.log("Order closed receiveAmt = %d", order.receivedAmt);
-        console.log("Order closed unfilledAmt = %d", order.unfilledAmt);
-        console.log("Order closed feeAmt = %d", order.feeAmt);
+        console.log("Order %d closed receiveAmt = %d", order.id, order.receivedAmt);
+        console.log("Order %d closed unfilledAmt = %d", order.id, order.unfilledAmt);
+        console.log("Order %d closed feeAmt = %d", order.id, order.feeAmt);
         // END-DEBUG
 
         delete activeOrders[order.id];
