@@ -283,14 +283,14 @@ contract OrderBook is Ownable, ReentrancyGuard {
                 OrderSide.BUY
             );
 
-            if (executeBase == makerUnfilledBase) {
-                closeOrderUnsafe(makerOrder, OrderCloseReason.FILLED);
-            } else {
-                unchecked {
-                    makerOrder.unfilledAmt -= executeBase;
-                    makerOrder.receivedAmt += executeQuote;
-                    makerOrder.feeAmt += quoteFee;
-                    users[makerOrder.owner].spendingBase -= executeBase;
+
+            unchecked {
+                makerOrder.unfilledAmt -= executeBase;
+                makerOrder.receivedAmt += executeQuote;
+                makerOrder.feeAmt += quoteFee;
+                users[makerOrder.owner].spendingBase -= executeBase;
+                if (executeBase == makerUnfilledBase) {
+                    closeOrderUnsafe(makerOrder, OrderCloseReason.FILLED);
                 }
             }
 
@@ -377,14 +377,13 @@ contract OrderBook is Ownable, ReentrancyGuard {
                 OrderSide.SELL
             );
 
-            if (executeQuote == makerUnfilledQuote) {
-                closeOrderUnsafe(makerOrder, OrderCloseReason.FILLED);
-            } else {
-                unchecked {
-                    makerOrder.unfilledAmt -= executeQuote;
-                    makerOrder.receivedAmt += executeBase;
-                    makerOrder.feeAmt += baseFee;
-                    users[makerOrder.owner].spendingQuote -= executeQuote;
+            unchecked {
+                makerOrder.unfilledAmt -= executeQuote;
+                makerOrder.receivedAmt += executeBase;
+                makerOrder.feeAmt += baseFee;
+                users[makerOrder.owner].spendingQuote -= executeQuote;
+                if (executeQuote == makerUnfilledQuote) {
+                    closeOrderUnsafe(makerOrder, OrderCloseReason.FILLED);
                 }
             }
 
@@ -424,11 +423,14 @@ contract OrderBook is Ownable, ReentrancyGuard {
         assert(EnumerableSet.remove(activeOrderIds, order.id));
         assert(EnumerableSet.remove(user.activeOrderIds, order.id));
 
-        if (order.side == OrderSide.BUY) {
-            user.spendingQuote -= order.unfilledAmt;
-        } else {
-            user.spendingBase -= order.unfilledAmt;
+        if (reason != OrderCloseReason.FILLED) {
+            if (order.side == OrderSide.BUY) {
+                user.spendingQuote -= order.unfilledAmt;
+            } else {
+                user.spendingBase -= order.unfilledAmt;
+            }
         }
+
         if (EnumerableSet.length(user.activeOrderIds) == 0) {
             assert(user.spendingQuote == 0 && user.spendingBase == 0);
         }
@@ -438,6 +440,13 @@ contract OrderBook is Ownable, ReentrancyGuard {
             order.receivedAmt, order.amount - order.unfilledAmt, order.feeAmt,
             order.side, reason
         );
+
+        // BEGIN-DEBUG
+        console.log("Order closed id = %d", order.id);
+        console.log("Order closed receiveAmt = %d", order.receivedAmt);
+        console.log("Order closed unfilledAmt = %d", order.unfilledAmt);
+        console.log("Order closed feeAmt = %d", order.feeAmt);
+        // END-DEBUG
 
         delete activeOrders[order.id];
     }
