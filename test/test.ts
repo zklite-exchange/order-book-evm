@@ -2,7 +2,7 @@ import {expect} from "chai";
 import hre from "hardhat";
 import {loadFixture} from "@nomicfoundation/hardhat-network-helpers";
 import {deployFakeTokens} from "./utils";
-import BigNumber from "bignumber.js";
+import BN from "bignumber.js";
 import moment from "moment";
 import {DurationInputArg1, DurationInputArg2} from "moment/moment";
 import {OrderBook} from "../typechain";
@@ -19,7 +19,6 @@ enum OrderCloseReason {
     FILLED = 0, CANCELLED, EXPIRED, OUT_OF_BALANCE, OUT_OF_ALLOWANCE
 }
 
-const BN = BigNumber;
 
 describe("Blackbox testing OrderBook contract", async () => {
     async function setUp() {
@@ -27,8 +26,8 @@ describe("Blackbox testing OrderBook contract", async () => {
         const {WETH, USDC} = await deployFakeTokens(alice);
         const ethDecimalPow = `1e${Number(await WETH.decimals())}`;
         const usdcDecimalPow = `1e${Number(await USDC.decimals())}`;
-        await WETH.transfer(bob.address, new BigNumber(100).times(ethDecimalPow).dp(0).toString());
-        await USDC.transfer(bob.address, new BigNumber(10000).times(usdcDecimalPow).dp(0).toString());
+        await WETH.transfer(bob.address, new BN(100).times(ethDecimalPow).dp(0).toString());
+        await USDC.transfer(bob.address, new BN(15000).times(usdcDecimalPow).dp(0).toString());
 
         //deploy contract
         const takerFeeBps = 0.1 / 0.01; // 0.1% = 10 basis points
@@ -52,9 +51,9 @@ describe("Blackbox testing OrderBook contract", async () => {
             alice, bob, WETH, USDC, OrderBookContract,
             takerFeeBps, makerFeeBps, minQuote,
             usdcDecimalPow, ethDecimalPow, priceDecimalPow,
-            fmtUsdc: (value: BigNumber.Value) => new BigNumber(value).times(usdcDecimalPow).toString(),
-            fmtWeth: (value: BigNumber.Value) => new BigNumber(value).times(ethDecimalPow).toString(),
-            fmtPrice: (price: BigNumber.Value) => new BigNumber(price).times(usdcDecimalPow).times(priceDecimalPow)
+            fmtUsdc: (value: BN.Value) => new BN(value).times(usdcDecimalPow).toString(),
+            fmtWeth: (value: BN.Value) => new BN(value).times(ethDecimalPow).toString(),
+            fmtPrice: (price: BN.Value) => new BN(price).times(usdcDecimalPow).times(priceDecimalPow)
                 .div(ethDecimalPow).toString(),
             expireAfter: (amount: DurationInputArg1, unit: DurationInputArg2) => moment().add(amount, unit).unix()
         };
@@ -372,5 +371,62 @@ describe("Blackbox testing OrderBook contract", async () => {
                 expect(makerOrder.feeAmt).eq(makerFeeAmt);
             }
         }
+    });
+
+    it("Normal use case: fill multiple order at once", async () => {
+        // alice submit 3 sell order, sell 1 ETH each
+        const load = await loadFixture(setUp);
+        const maker = load.alice;
+        const makerAmount = load.fmtWeth(1);
+        await load.WETH.connect(maker).approve(await load.OrderBookContract.getAddress(), load.fmtWeth(3));
+        const makerPrices = [3000, 4000, 5000];
+        const makerOrderIds: bigint[] = [123n, 456n]; // 123, 456 are invalid orderIds, the contract should ignore them
+        for (let i = 0; i < makerPrices.length; i++) {
+            const makerPrice = load.fmtPrice(makerPrices[i]);
+            const makerOrderId = await submitOrderHelper(
+                load.OrderBookContract, maker, OrderSide.SELL,
+                makerPrice, makerAmount, load.expireAfter('1', 'day')
+            );
+            makerOrderIds.push(makerOrderId);
+        }
+
+        // bob submit 1 BUY order, fill all 3 order above
+        const taker = load.bob;
+        const takerAmount = load.fmtUsdc(3000 + 4000 + 5000);
+        const takerPrice = load.fmtPrice(5000);
+        await load.USDC.connect(taker).approve(await load.OrderBookContract.getAddress(), takerAmount);
+        await submitOrderHelper(
+            load.OrderBookContract, taker, OrderSide.BUY,
+            takerPrice, takerAmount, load.expireAfter(1, 'day'),
+            makerOrderIds, async (tx) => {
+                for (let i = 0; i < makerPrices.length; i++) {
+                    await expect(tx)
+                        .emit(load.OrderBookContract, "FillEvent")
+                        .withArgs(
+                            makerOrderIds[i + 2], anyValue, maker.address, taker.address,
+                            load.fmtUsdc(makerPrices[i]), makerAmount, anyValue, anyValue, OrderSide.BUY
+                        )
+                        .and.emit(load.OrderBookContract, "OrderClosedEvent")
+                        .withArgs(makerOrderIds[i + 2], maker.address, anyValue, anyValue, anyValue, OrderSide.SELL, OrderCloseReason.FILLED);
+                }
+                await expect(tx)
+                    .changeTokenBalances(
+                        load.USDC,
+                        [taker, maker],
+                        [
+                            new BN(takerAmount).times(-1).toString(),
+                            new BN(takerAmount).minus(new BN(takerAmount).times(load.makerFeeBps).div(10000)).toString()
+                        ]);
+
+                await expect(tx)
+                    .changeTokenBalances(
+                        load.WETH,
+                        [taker, maker],
+                        [
+                            new BN(makerAmount).times(3).minus(new BN(makerAmount).times(load.takerFeeBps).times(3).div(10000)).toString(),
+                            new BN(makerAmount).times(-3).toString()
+                        ]);
+            }
+        );
     });
 });
