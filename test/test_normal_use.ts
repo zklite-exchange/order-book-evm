@@ -1,39 +1,11 @@
 import {expect} from "chai";
 import {loadFixture} from "@nomicfoundation/hardhat-network-helpers";
-import {OrderCloseReason, OrderSide, setUpTest} from "./utils";
+import {OrderCloseReason, OrderSide, setUpTest, submitOrderHelper} from "./utils";
 import BN from "bignumber.js";
-import {OrderBook} from "../typechain";
-import type {HardhatEthersSigner} from "@nomicfoundation/hardhat-ethers/signers";
-import {BigNumberish, type ContractTransactionResponse} from "ethers";
 import {anyValue} from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 
 
 describe("Blackbox testing OrderBook contract", async () => {
-
-    const submitOrderHelper = async (
-        contract: OrderBook, owner: HardhatEthersSigner,
-        side: OrderSide, price: BigNumberish, amount: BigNumberish,
-        validUtil: BigNumberish,
-        orderIdsToFill?: BigNumberish[],
-        extraExpect?: (tx: Promise<ContractTransactionResponse>) => Promise<void>
-    ): Promise<bigint> => {
-        let orderId = 0n;
-        const tx = contract.connect(owner)
-            .submitOrder(side, price, amount, validUtil, orderIdsToFill ?? []);
-        await expect(tx).to.emit(contract, "NewOrderEvent")
-            .withArgs(
-                (_orderId: bigint) => {
-                    orderId = _orderId;
-                    return true;
-                },
-                owner, price, amount, side, validUtil
-            );
-        if (extraExpect) {
-            await extraExpect(tx);
-        }
-        expect(orderId).gt(0);
-        return orderId;
-    };
 
     it("Normal use case: submit order and cancel order", async () => {
         const load = await loadFixture(setUpTest);

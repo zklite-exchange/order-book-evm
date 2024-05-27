@@ -3,6 +3,9 @@ import BN from "bignumber.js";
 import {expect} from "chai";
 import {DurationInputArg1, DurationInputArg2} from "moment";
 import moment from "moment/moment";
+import {OrderBook} from "../typechain";
+import type {HardhatEthersSigner} from "@nomicfoundation/hardhat-ethers/signers";
+import {BigNumberish, type ContractTransactionResponse} from "ethers";
 
 export enum OrderSide {
     BUY = 0,
@@ -58,3 +61,28 @@ export async function setUpTest() {
         expireAfter: (amount: DurationInputArg1, unit: DurationInputArg2) => moment().add(amount, unit).unix()
     };
 }
+
+export const submitOrderHelper = async (
+    contract: OrderBook, owner: HardhatEthersSigner,
+    side: OrderSide, price: BigNumberish, amount: BigNumberish,
+    validUtil: BigNumberish,
+    orderIdsToFill?: BigNumberish[],
+    extraExpect?: (tx: Promise<ContractTransactionResponse>) => Promise<void>
+): Promise<bigint> => {
+    let orderId = 0n;
+    const tx = contract.connect(owner)
+        .submitOrder(side, price, amount, validUtil, orderIdsToFill ?? []);
+    await expect(tx).to.emit(contract, "NewOrderEvent")
+        .withArgs(
+            (_orderId: bigint) => {
+                orderId = _orderId;
+                return true;
+            },
+            owner, price, amount, side, validUtil
+        );
+    if (extraExpect) {
+        await extraExpect(tx);
+    }
+    expect(orderId).gt(0);
+    return orderId;
+};
