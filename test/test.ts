@@ -1,10 +1,7 @@
 import {expect} from "chai";
-import hre from "hardhat";
 import {loadFixture} from "@nomicfoundation/hardhat-network-helpers";
-import {deployFakeTokens} from "./utils";
+import {setUpTest} from "./utils";
 import BN from "bignumber.js";
-import moment from "moment";
-import {DurationInputArg1, DurationInputArg2} from "moment/moment";
 import {OrderBook} from "../typechain";
 import type {HardhatEthersSigner} from "@nomicfoundation/hardhat-ethers/signers";
 import {BigNumberish, type ContractTransactionResponse} from "ethers";
@@ -21,43 +18,6 @@ enum OrderCloseReason {
 
 
 describe("Blackbox testing OrderBook contract", async () => {
-    async function setUp() {
-        const [alice, bob] = await hre.ethers.getSigners();
-        const {WETH, USDC} = await deployFakeTokens(alice);
-        const ethDecimalPow = `1e${Number(await WETH.decimals())}`;
-        const usdcDecimalPow = `1e${Number(await USDC.decimals())}`;
-        await WETH.transfer(bob.address, new BN(100).times(ethDecimalPow).dp(0).toString());
-        await USDC.transfer(bob.address, new BN(15000).times(usdcDecimalPow).dp(0).toString());
-
-        //deploy contract
-        const takerFeeBps = 0.1 / 0.01; // 0.1% = 10 basis points
-        const makerFeeBps = 0.1 / 0.01; // 0.1% = 10 basis points
-        const priceDecimals = 20;
-        const minQuote = new BN(5).times(usdcDecimalPow).toString(); // 5 USDC
-        const orderBookConstructorArgs = [
-            alice.address,
-            await WETH.getAddress(), await USDC.getAddress(),
-            priceDecimals, minQuote, takerFeeBps, makerFeeBps
-        ];
-        const OrderBookContract = await hre.ethers.deployContract("OrderBook", orderBookConstructorArgs);
-        expect(await OrderBookContract.minQuote()).to.equal(minQuote);
-        expect(await OrderBookContract.makerFeeBps()).to.equal(makerFeeBps);
-        expect(await OrderBookContract.takerFeeBps()).to.equal(takerFeeBps);
-        expect(await OrderBookContract.priceDecimals()).to.equal(priceDecimals);
-        expect(await OrderBookContract.baseToken()).to.equal(await WETH.getAddress());
-        expect(await OrderBookContract.quoteToken()).to.equal(await USDC.getAddress());
-        const priceDecimalPow = `1e${priceDecimals}`;
-        return {
-            alice, bob, WETH, USDC, OrderBookContract,
-            takerFeeBps, makerFeeBps, minQuote,
-            usdcDecimalPow, ethDecimalPow, priceDecimalPow,
-            fmtUsdc: (value: BN.Value) => new BN(value).times(usdcDecimalPow).toString(),
-            fmtWeth: (value: BN.Value) => new BN(value).times(ethDecimalPow).toString(),
-            fmtPrice: (price: BN.Value) => new BN(price).times(usdcDecimalPow).times(priceDecimalPow)
-                .div(ethDecimalPow).toString(),
-            expireAfter: (amount: DurationInputArg1, unit: DurationInputArg2) => moment().add(amount, unit).unix()
-        };
-    }
 
     const submitOrderHelper = async (
         contract: OrderBook, owner: HardhatEthersSigner,
@@ -85,7 +45,7 @@ describe("Blackbox testing OrderBook contract", async () => {
     };
 
     it("Normal use case: submit order and cancel order", async () => {
-        const load = await loadFixture(setUp);
+        const load = await loadFixture(setUpTest);
         for (let side = OrderSide.BUY; side <= OrderSide.SELL; side++) {
             const amount = side == OrderSide.BUY ? load.fmtUsdc(100) : load.fmtWeth(1);
             const price = load.fmtPrice(3000);
@@ -123,7 +83,7 @@ describe("Blackbox testing OrderBook contract", async () => {
     });
 
     it("Normal use case: Fill order 100% amount", async () => {
-        const load = await loadFixture(setUp);
+        const load = await loadFixture(setUpTest);
         for (let takerSide = OrderSide.BUY; takerSide <= OrderSide.SELL; takerSide++) {
             const taker = load.bob;
             const maker = load.alice;
@@ -215,7 +175,7 @@ describe("Blackbox testing OrderBook contract", async () => {
     });
 
     it("Normal use case: partial fill", async () => {
-        const load = await loadFixture(setUp);
+        const load = await loadFixture(setUpTest);
         // Alice sell 3ETH
         // Bob submit 3 order, fill 1ETH each time
         const maker = load.alice;
@@ -295,7 +255,7 @@ describe("Blackbox testing OrderBook contract", async () => {
 
 
     it("Normal use case: partial fill 2", async () => {
-        const load = await loadFixture(setUp);
+        const load = await loadFixture(setUpTest);
         // Alice buy 3ETH
         // Bob submit 3 order, fill 1ETH each time
         const maker = load.alice;
@@ -375,7 +335,7 @@ describe("Blackbox testing OrderBook contract", async () => {
 
     it("Normal use case: fill multiple order at once", async () => {
         // alice submit 3 sell order, sell 1 ETH each
-        const load = await loadFixture(setUp);
+        const load = await loadFixture(setUpTest);
         const maker = load.alice;
         const makerAmount = load.fmtWeth(1);
         await load.WETH.connect(maker).approve(await load.OrderBookContract.getAddress(), load.fmtWeth(3));
