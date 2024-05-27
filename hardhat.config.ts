@@ -1,6 +1,7 @@
 import {HardhatUserConfig} from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
 import "@nomicfoundation/hardhat-ethers";
+import "solidity-coverage";
 import {internalTask} from 'hardhat/config';
 import {TASK_COMPILE_SOLIDITY_READ_FILE} from 'hardhat/builtin-tasks/task-names';
 import dotenv from "dotenv";
@@ -31,7 +32,7 @@ internalTask(TASK_COMPILE_SOLIDITY_READ_FILE).setAction(
                 return lines.join("\n");
             }
         }
-        return runSuper(params)
+        return runSuper(params);
     }
 );
 
