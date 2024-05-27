@@ -8,7 +8,8 @@
     "strict": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "moduleResolution": "Node"
+    "moduleResolution": "Node",
+    "noImplicitAny": false
   },
   "include": ["./test", "./typechain"],
   "files": ["./hardhat.config.ts"]

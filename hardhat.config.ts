@@ -1,6 +1,7 @@
 import {HardhatUserConfig} from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
-import {internalTask, extendConfig, task} from 'hardhat/config';
+import "@nomicfoundation/hardhat-ethers";
+import {internalTask} from 'hardhat/config';
 import {TASK_COMPILE_SOLIDITY_READ_FILE} from 'hardhat/builtin-tasks/task-names';
 import dotenv from "dotenv";
 import * as fs from "fs";
