@@ -293,4 +293,84 @@ describe("Blackbox testing OrderBook contract", async () => {
             }
         }
     });
+
+
+    it("Normal use case: partial fill 2", async () => {
+        const load = await loadFixture(setUp);
+        // Alice buy 3ETH
+        // Bob submit 3 order, fill 1ETH each time
+        const maker = load.alice;
+        const makerPrice = load.fmtPrice(3000);
+        const makerAmount = load.fmtUsdc(9000);
+        let makerUnfilledAmt = makerAmount;
+        let makerReceivedAmt = "0";
+        let makerFeeAmt = "0";
+        await load.USDC.connect(maker).approve(await load.OrderBookContract.getAddress(), makerAmount);
+
+        const makerOrderId = await submitOrderHelper(
+            load.OrderBookContract, maker, OrderSide.BUY,
+            makerPrice, makerAmount, load.expireAfter('1', 'day')
+        );
+
+        const taker = load.bob;
+        const takerPrices = [1000, 2000, 3000]; // taker price doesn't matter, as long as it <= makerPrice (taker SELL)
+        await load.WETH.connect(taker).approve(
+            await load.OrderBookContract.getAddress(),
+            new BN(makerAmount).div(makerPrice).times(load.priceDecimalPow).dp(0).toString());
+        for (let i = 0; i < takerPrices.length; i++) {
+            const takerPrice = load.fmtPrice(takerPrices[i]);
+            const takerAmount = load.fmtWeth(1);
+
+            const _makerReceiveAmt = takerAmount;
+            const _makerFee = new BN(_makerReceiveAmt).times(load.makerFeeBps).div(10000).dp(0).toString();
+
+            const takeReceiveAmt = load.fmtUsdc(3000); // exchange 1 ETH for 3000 USDC, because makerPrice = 3000
+            const takerFee = new BN(takeReceiveAmt).times(load.takerFeeBps).div(10000).dp(0).toString();
+
+            await submitOrderHelper(
+                load.OrderBookContract, taker, OrderSide.SELL,
+                takerPrice, takerAmount, load.expireAfter(1, 'day'),
+                [makerOrderId], async (tx) => {
+                    await expect(tx)
+                        .emit(load.OrderBookContract, "FillEvent")
+                        .withArgs(
+                            makerOrderId, anyValue, maker.address, taker.address,
+                            takeReceiveAmt, takerAmount, takerFee, _makerFee, OrderSide.SELL
+                        )
+                        .and.emit(load.OrderBookContract, "OrderClosedEvent")
+                        .withArgs(anyValue, taker.address, takeReceiveAmt, takerAmount, takerFee, OrderSide.SELL, OrderCloseReason.FILLED);
+
+                    await expect(tx)
+                        .changeTokenBalances(
+                            load.USDC,
+                            [taker, maker],
+                            [
+                                new BN(takeReceiveAmt).minus(takerFee).toString(),
+                                new BN(takeReceiveAmt).times(-1).toString()
+                            ]);
+                    await expect(tx)
+                        .changeTokenBalances(
+                            load.WETH,
+                            [taker, maker],
+                            [
+                                new BN(_makerReceiveAmt).times(-1).toString(),
+                                new BN(_makerReceiveAmt).minus(_makerFee).toString()
+                            ]);
+                }
+            );
+
+            makerUnfilledAmt = new BN(makerUnfilledAmt).minus(takeReceiveAmt).toString();
+            makerReceivedAmt = new BN(makerReceivedAmt).plus(_makerReceiveAmt).toString();
+            makerFeeAmt = new BN(makerFeeAmt).plus(_makerFee).toString();
+            const makerOrder = await load.OrderBookContract.getOrder(makerOrderId);
+            if (i == takerPrices.length - 1) {
+                // makerOrder zero-ed as it filled
+                expect(makerOrder.id).eq(0);
+            } else {
+                expect(makerOrder.unfilledAmt).eq(makerUnfilledAmt);
+                expect(makerOrder.receivedAmt).eq(makerReceivedAmt);
+                expect(makerOrder.feeAmt).eq(makerFeeAmt);
+            }
+        }
+    });
 });
