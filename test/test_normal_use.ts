@@ -1,20 +1,11 @@
 import {expect} from "chai";
 import {loadFixture} from "@nomicfoundation/hardhat-network-helpers";
-import {setUpTest} from "./utils";
+import {OrderCloseReason, OrderSide, setUpTest} from "./utils";
 import BN from "bignumber.js";
 import {OrderBook} from "../typechain";
 import type {HardhatEthersSigner} from "@nomicfoundation/hardhat-ethers/signers";
 import {BigNumberish, type ContractTransactionResponse} from "ethers";
 import {anyValue} from "@nomicfoundation/hardhat-chai-matchers/withArgs";
-
-enum OrderSide {
-    BUY = 0,
-    SELL = 1,
-}
-
-enum OrderCloseReason {
-    FILLED = 0, CANCELLED, EXPIRED, OUT_OF_BALANCE, OUT_OF_ALLOWANCE
-}
 
 
 describe("Blackbox testing OrderBook contract", async () => {
