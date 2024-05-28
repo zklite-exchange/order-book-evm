@@ -1,5 +1,5 @@
 import hre from "hardhat";
-import BN from "bignumber.js";
+import BN, {BigNumber} from "bignumber.js";
 import {expect} from "chai";
 import {DurationInputArg1, DurationInputArg2} from "moment";
 import moment from "moment/moment";
@@ -16,6 +16,8 @@ export enum OrderCloseReason {
     FILLED = 0, CANCELLED, EXPIRED, OUT_OF_BALANCE, OUT_OF_ALLOWANCE
 }
 
+BigNumber.config({ EXPONENTIAL_AT: 1e+9 });
+
 export async function deployFakeTokens(owner: any) {
     const WETH = await hre.ethers.deployContract("WETH", owner);
     const USDC = await hre.ethers.deployContract("USDC", owner);
@@ -29,8 +31,8 @@ export async function setUpTest() {
     const {WETH, USDC} = await deployFakeTokens(alice);
     const ethDecimalPow = `1e${Number(await WETH.decimals())}`;
     const usdcDecimalPow = `1e${Number(await USDC.decimals())}`;
-    await WETH.transfer(bob.address, new BN(100).times(ethDecimalPow).dp(0).toString());
-    await USDC.transfer(bob.address, new BN(15000).times(usdcDecimalPow).dp(0).toString());
+    await WETH.transfer(bob.address, new BN(1000).times(ethDecimalPow).dp(0).toString());
+    await USDC.transfer(bob.address, new BN(150000).times(usdcDecimalPow).dp(0).toString());
 
     //deploy contract
     const takerFeeBps = 0.1 / 0.01; // 0.1% = 10 basis points

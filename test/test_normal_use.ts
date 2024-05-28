@@ -296,6 +296,78 @@ describe("Blackbox testing OrderBook contract", async () => {
         }
     });
 
+    it("Normal use case: partial fill 3 - unfilled amount >= minQuote", async () => {
+        const load = await loadFixture(setUpTest);
+        const price = load.fmtPrice(1); // price 1:1
+        const minQuote = load.fmtUsdc(10);
+        await load.OrderBookContract.connect(load.alice).setMinQuote(minQuote);
+
+        const cases = [{
+            makerSide: OrderSide.BUY, makerAmount: load.fmtUsdc(15),
+            takerSide: OrderSide.SELL, takerAmount: load.fmtWeth(10),
+            fill: null // can't fill
+        }, {
+            makerSide: OrderSide.BUY, makerAmount: load.fmtUsdc(15),
+            takerSide: OrderSide.SELL, takerAmount: load.fmtWeth(20),
+            fill: null // can't fill
+        }, {
+            makerSide: OrderSide.BUY, makerAmount: load.fmtUsdc(20),
+            takerSide: OrderSide.SELL, takerAmount: load.fmtWeth(25),
+            fill: {
+                base: load.fmtWeth(10),
+                quote: load.fmtUsdc(10)
+            }
+        }, {
+            makerSide: OrderSide.SELL, makerAmount: load.fmtWeth(15),
+            takerSide: OrderSide.BUY, takerAmount: load.fmtUsdc(10),
+            fill: null // can't fill
+        }, {
+            makerSide: OrderSide.SELL, makerAmount: load.fmtWeth(15),
+            takerSide: OrderSide.BUY, takerAmount: load.fmtUsdc(20),
+            fill: null // can't fill
+        }, {
+            makerSide: OrderSide.SELL, makerAmount: load.fmtWeth(20),
+            takerSide: OrderSide.BUY, takerAmount: load.fmtUsdc(21),
+            fill: {
+                base: load.fmtWeth(10),
+                quote: load.fmtUsdc(10)
+            }
+        }];
+
+        const maker = load.bob;
+        const taker = load.alice;
+        await load.approveSpending(load.USDC, maker, await load.USDC.balanceOf(maker.address));
+        await load.approveSpending(load.WETH, maker, await load.WETH.balanceOf(maker.address));
+        await load.approveSpending(load.USDC, taker, await load.USDC.balanceOf(taker.address));
+        await load.approveSpending(load.WETH, taker, await load.WETH.balanceOf(taker.address));
+
+        for (let i = 0; i < cases.length; i++) {
+            const testCase = cases[i];
+            const makerOrderId = await submitOrderHelper(
+                load.OrderBookContract, maker, testCase.makerSide, price,
+                testCase.makerAmount
+            );
+            await submitOrderHelper(
+                load.OrderBookContract, taker, testCase.takerSide, price,
+                testCase.takerAmount, undefined,
+                [makerOrderId], async (tx) => {
+                    if (testCase.fill) {
+                        await expect(tx).to.emit(load.OrderBookContract, "FillEvent")
+                            .withArgs(
+                                makerOrderId, anyValue, maker.address, taker.address,
+                                testCase.fill.quote, testCase.fill.base, anyValue, anyValue, testCase.takerSide);
+                        expect((await load.OrderBookContract.getOrder(makerOrderId)).unfilledAmt)
+                            .eq(new BN(testCase.makerAmount)
+                                .minus(testCase.makerSide == OrderSide.BUY ? testCase.fill.quote : testCase.fill.base)
+                            );
+                    } else {
+                        await expect(tx).to.not.emit(load.OrderBookContract, "FillEvent");
+                    }
+                }
+            );
+        }
+    });
+
     it("Normal use case: fill multiple order at once", async () => {
         // alice submit 3 sell order, sell 1 ETH each
         const load = await loadFixture(setUpTest);
