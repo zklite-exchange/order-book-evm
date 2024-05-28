@@ -65,10 +65,11 @@ export async function setUpTest() {
 export const submitOrderHelper = async (
     contract: OrderBook, owner: HardhatEthersSigner,
     side: OrderSide, price: BigNumberish, amount: BigNumberish,
-    validUtil: BigNumberish,
+    validUtil?: BigNumberish,
     orderIdsToFill?: BigNumberish[],
     extraExpect?: (tx: Promise<ContractTransactionResponse>) => Promise<void>
 ): Promise<bigint> => {
+    validUtil = validUtil ?? moment().add(1, 'day').unix();
     let orderId = 0n;
     const tx = contract.connect(owner)
         .submitOrder(side, price, amount, validUtil, orderIdsToFill ?? []);
