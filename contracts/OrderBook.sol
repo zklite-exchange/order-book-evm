@@ -148,8 +148,13 @@ contract OrderBook is Ownable {
         uint startSubmitOrderGas = gasleft();
         // END-DEBUG
         require(validUntil > block.timestamp, "Invalid validUntil");
-        require(amount > 0, "Invalid amount");
         require(price > 0, "Invalid price");
+        require(amount > 0, "Invalid amount");
+        if (side == OrderSide.BUY) {
+            require(amount >= minQuote, "Amount too small");
+        } else {
+            require(Math.mulDiv(amount, price, priceDecimalPow) >= minQuote, "Amount too small");
+        }
 
         User storage user = users[msg.sender];
         if (side == OrderSide.BUY) {

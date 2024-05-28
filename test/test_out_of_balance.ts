@@ -11,26 +11,26 @@ describe("Blackbox testing OrderBook contract", async () => {
 
         await expect(
             load.OrderBookContract.connect(load.bob).submitOrder(
-                OrderSide.BUY, 123, bobUsdcBalance + 1n, load.expireAfter(1, 'day'), []
+                OrderSide.BUY, load.fmtPrice(3000), bobUsdcBalance + 1n, load.expireAfter(1, 'day'), []
             )
         ).to.be.revertedWith("Not enough balance");
 
         await expect(
             load.OrderBookContract.connect(load.bob).submitOrder(
-                OrderSide.SELL, 123, bobEthBalance + 1n, load.expireAfter(1, 'day'), []
+                OrderSide.SELL, load.fmtPrice(3000), bobEthBalance + 1n, load.expireAfter(1, 'day'), []
             )
         ).to.be.revertedWith("Not enough balance");
 
 
         await expect(
             load.OrderBookContract.connect(load.bob).submitOrder(
-                OrderSide.BUY, 123, bobUsdcBalance, load.expireAfter(1, 'day'), []
+                OrderSide.BUY, load.fmtPrice(3000), bobUsdcBalance, load.expireAfter(1, 'day'), []
             )
         ).to.be.revertedWith("Exceed quote allowance");
 
         await expect(
             load.OrderBookContract.connect(load.bob).submitOrder(
-                OrderSide.SELL, 123, bobEthBalance, load.expireAfter(1, 'day'), []
+                OrderSide.SELL, load.fmtPrice(3000), bobEthBalance, load.expireAfter(1, 'day'), []
             )
         ).to.be.revertedWith("Exceed base allowance");
     });
@@ -41,13 +41,13 @@ describe("Blackbox testing OrderBook contract", async () => {
 
         const maker = load.bob;
         for (let makerSide = OrderSide.BUY; makerSide <= OrderSide.SELL; makerSide++) {
-            console.log("makerside", makerSide);
             const makerSellToken = makerSide == OrderSide.BUY ? load.USDC : load.WETH;
             const makerBuyToken = makerSide == OrderSide.BUY ? load.WETH : load.USDC;
+            const price = load.fmtPrice(3000);
             const makerSubmit = async () => {
                 const makerBalance = await makerSellToken.balanceOf(maker.address);
                 await makerSellToken.connect(maker).approve(await load.OrderBookContract.getAddress(), makerBalance);
-                return await submitOrderHelper(load.OrderBookContract, maker, makerSide, 123, makerBalance);
+                return await submitOrderHelper(load.OrderBookContract, maker, makerSide, price, makerBalance);
             };
 
 
@@ -60,7 +60,7 @@ describe("Blackbox testing OrderBook contract", async () => {
                 .approve(await load.OrderBookContract.getAddress(), await makerBuyToken.balanceOf(load.alice.address));
             const takerOrderId = await submitOrderHelper(
                 load.OrderBookContract, load.alice, takerSide,
-                123, await makerBuyToken.balanceOf(load.alice),
+                price, await makerBuyToken.balanceOf(load.alice),
                 undefined, [makerOrderId], async (tx) => {
                     await expect(tx).to.emit(load.OrderBookContract, "OrderClosedEvent")
                         .withArgs(makerOrderId, maker.address, 0, 0, 0, anyValue, OrderCloseReason.OUT_OF_ALLOWANCE);
@@ -76,7 +76,7 @@ describe("Blackbox testing OrderBook contract", async () => {
 
             await submitOrderHelper(
                 load.OrderBookContract, load.alice, takerSide,
-                123, await makerBuyToken.balanceOf(load.alice),
+                price, await makerBuyToken.balanceOf(load.alice),
                 undefined, [makerOrderId], async (tx) => {
                     await expect(tx).to.emit(load.OrderBookContract, "OrderClosedEvent")
                         .withArgs(makerOrderId, maker.address, 0, 0, 0, anyValue, OrderCloseReason.OUT_OF_BALANCE);
