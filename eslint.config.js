@@ -1,9 +1,9 @@
-// @ts-check
+/* eslint-disable */
 
-import eslint from '@eslint/js';
-import tsEslint from 'typescript-eslint';
+const eslint = require('@eslint/js');
+const tsEslint = require('typescript-eslint');
 
-export default tsEslint.config(
+module.exports = tsEslint.config(
     eslint.configs.recommended,
     ...tsEslint.configs.recommended,
     {
@@ -11,6 +11,6 @@ export default tsEslint.config(
             "semi": "off",
             "@typescript-eslint/semi": "error",
             "@typescript-eslint/no-explicit-any": "off"
-        }
+        },
     }
 );

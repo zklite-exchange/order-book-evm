@@ -3,7 +3,7 @@ import BN from "bignumber.js";
 import {expect} from "chai";
 import {DurationInputArg1, DurationInputArg2} from "moment";
 import moment from "moment/moment";
-import {OrderBook} from "../typechain";
+import {ERC20, OrderBook} from "../typechain";
 import type {HardhatEthersSigner} from "@nomicfoundation/hardhat-ethers/signers";
 import {BigNumberish, type ContractTransactionResponse} from "ethers";
 
@@ -58,7 +58,9 @@ export async function setUpTest() {
         fmtWeth: (value: BN.Value) => new BN(value).times(ethDecimalPow).toString(),
         fmtPrice: (price: BN.Value) => new BN(price).times(usdcDecimalPow).times(priceDecimalPow)
             .div(ethDecimalPow).toString(),
-        expireAfter: (amount: DurationInputArg1, unit: DurationInputArg2) => moment().add(amount, unit).unix()
+        expireAfter: (amount: DurationInputArg1, unit: DurationInputArg2) => moment().add(amount, unit).unix(),
+        approveSpending: async (token: ERC20, owner: HardhatEthersSigner, amount: BigNumberish)=>
+            token.connect(owner).approve(await OrderBookContract.getAddress(), amount)
     };
 }
 
