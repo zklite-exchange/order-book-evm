@@ -5,3 +5,7 @@ node_modules
 typechain
 .env
 coverage
+cache-zk
+demo
+deployments-zk
+artifacts-zk

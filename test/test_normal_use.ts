@@ -1,6 +1,5 @@
 import {expect} from "chai";
-import {loadFixture} from "@nomicfoundation/hardhat-network-helpers";
-import {OrderCloseReason, OrderSide, setUpTest, submitOrderHelper} from "./utils";
+import {expectTokenChangeBalance, OrderCloseReason, OrderSide, setUpTest, submitOrderHelper} from "./utils";
 import BN from "bignumber.js";
 import {anyValue} from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 
@@ -8,16 +7,15 @@ import {anyValue} from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 describe("Blackbox testing OrderBook contract", async () => {
 
     it("Normal use case: submit order and cancel order", async () => {
-        const load = await loadFixture(setUpTest);
+        const load = await setUpTest();
         for (let side = OrderSide.BUY; side <= OrderSide.SELL; side++) {
             const amount = side == OrderSide.BUY ? load.fmtUsdc(100) : load.fmtWeth(1);
             const price = load.fmtPrice(3000);
-            const validUtil = load.expireAfter(7, 'days');
+            const validUtil = await load.expireAfter(7, 'days');
             await (side == OrderSide.BUY ? load.USDC : load.WETH)
                 .connect(load.bob)
                 .approve(await load.OrderBookContract.getAddress(), amount);
             const orderId = await submitOrderHelper(load.OrderBookContract, load.bob, side, price, amount, validUtil);
-            console.log("orderId", orderId);
 
             expect(await load.OrderBookContract.getActiveOrderIds()).to.contain(orderId);
             expect(await load.OrderBookContract.getActiveOrderIdsOf(load.bob.address)).to.contain(orderId);
@@ -46,7 +44,7 @@ describe("Blackbox testing OrderBook contract", async () => {
     });
 
     it("Normal use case: Fill order 100% amount", async () => {
-        const load = await loadFixture(setUpTest);
+        const load = await setUpTest();
         for (let takerSide = OrderSide.BUY; takerSide <= OrderSide.SELL; takerSide++) {
             const taker = load.bob;
             const maker = load.alice;
@@ -116,21 +114,17 @@ describe("Blackbox testing OrderBook contract", async () => {
                         .and.emit(load.OrderBookContract, "OrderClosedEvent")
                         .withArgs(anyValue, taker.address, takerReceiveAmt, takerAmount, takerFee, takerSide, OrderCloseReason.FILLED);
 
-                    await expect(tx)
-                        .changeTokenBalances(
-                            takerSellToken,
+                    await expectTokenChangeBalance(tx, takerSellToken,
                             [taker, maker],
                             [
-                                new BN(takerAmount).times(-1).toString(),
-                                new BN(makerReceiveAmt).minus(makerFee).toString()
+                                new BN(takerAmount).times(-1),
+                                new BN(makerReceiveAmt).minus(makerFee)
                             ]);
-                    await expect(tx)
-                        .changeTokenBalances(
-                            takerBuyToken,
+                    await expectTokenChangeBalance(tx, takerBuyToken,
                             [taker, maker],
                             [
-                                new BN(takerReceiveAmt).minus(takerFee).toString(),
-                                new BN(makerAmount).times(-1).toString()
+                                new BN(takerReceiveAmt).minus(takerFee),
+                                new BN(makerAmount).times(-1)
                             ]);
                 }
             );
@@ -138,7 +132,7 @@ describe("Blackbox testing OrderBook contract", async () => {
     });
 
     it("Normal use case: partial fill", async () => {
-        const load = await loadFixture(setUpTest);
+        const load = await setUpTest();
         // Alice sell 3ETH
         // Bob submit 3 order, fill 1ETH each time
         const maker = load.alice;
@@ -182,21 +176,18 @@ describe("Blackbox testing OrderBook contract", async () => {
                         .and.emit(load.OrderBookContract, "OrderClosedEvent")
                         .withArgs(anyValue, taker.address, takeReceiveAmt, takerAmount, takerFee, OrderSide.BUY, OrderCloseReason.FILLED);
 
-                    await expect(tx)
-                        .changeTokenBalances(
-                            load.USDC,
+                    await expectTokenChangeBalance(tx, load.USDC,
+                        [taker, maker],
+                        [
+                            new BN(takerAmount).times(-1),
+                            new BN(_makerReceiveAmt).minus(_makerFee)
+                        ]);
+
+                    await expectTokenChangeBalance(tx, load.WETH,
                             [taker, maker],
                             [
-                                new BN(takerAmount).times(-1).toString(),
-                                new BN(_makerReceiveAmt).minus(_makerFee).toString()
-                            ]);
-                    await expect(tx)
-                        .changeTokenBalances(
-                            load.WETH,
-                            [taker, maker],
-                            [
-                                new BN(takeReceiveAmt).minus(takerFee).toString(),
-                                new BN(takeReceiveAmt).times(-1).toString()
+                                new BN(takeReceiveAmt).minus(takerFee),
+                                new BN(takeReceiveAmt).times(-1)
                             ]);
                 }
             );
@@ -218,7 +209,7 @@ describe("Blackbox testing OrderBook contract", async () => {
 
 
     it("Normal use case: partial fill 2", async () => {
-        const load = await loadFixture(setUpTest);
+        const load = await setUpTest();
         // Alice buy 3ETH
         // Bob submit 3 order, fill 1ETH each time
         const maker = load.alice;
@@ -262,21 +253,17 @@ describe("Blackbox testing OrderBook contract", async () => {
                         .and.emit(load.OrderBookContract, "OrderClosedEvent")
                         .withArgs(anyValue, taker.address, takeReceiveAmt, takerAmount, takerFee, OrderSide.SELL, OrderCloseReason.FILLED);
 
-                    await expect(tx)
-                        .changeTokenBalances(
-                            load.USDC,
+                    await expectTokenChangeBalance(tx, load.USDC,
                             [taker, maker],
                             [
-                                new BN(takeReceiveAmt).minus(takerFee).toString(),
-                                new BN(takeReceiveAmt).times(-1).toString()
+                                new BN(takeReceiveAmt).minus(takerFee),
+                                new BN(takeReceiveAmt).times(-1)
                             ]);
-                    await expect(tx)
-                        .changeTokenBalances(
-                            load.WETH,
+                    await expectTokenChangeBalance(tx, load.WETH,
                             [taker, maker],
                             [
-                                new BN(_makerReceiveAmt).times(-1).toString(),
-                                new BN(_makerReceiveAmt).minus(_makerFee).toString()
+                                new BN(_makerReceiveAmt).times(-1),
+                                new BN(_makerReceiveAmt).minus(_makerFee)
                             ]);
                 }
             );
@@ -297,7 +284,7 @@ describe("Blackbox testing OrderBook contract", async () => {
     });
 
     it("Normal use case: partial fill 3 - unfilled amount >= minQuote", async () => {
-        const load = await loadFixture(setUpTest);
+        const load = await setUpTest();
         const price = load.fmtPrice(1); // price 1:1
         const minQuote = load.fmtUsdc(10);
         await load.OrderBookContract.connect(load.alice).setMinQuote(minQuote);
@@ -369,8 +356,8 @@ describe("Blackbox testing OrderBook contract", async () => {
     });
 
     it("Normal use case: fill multiple order at once", async () => {
+        const load = await setUpTest();
         // alice submit 3 sell order, sell 1 ETH each
-        const load = await loadFixture(setUpTest);
         const maker = load.alice;
         const makerAmount = load.fmtWeth(1);
         await load.WETH.connect(maker).approve(await load.OrderBookContract.getAddress(), load.fmtWeth(3));
@@ -404,22 +391,18 @@ describe("Blackbox testing OrderBook contract", async () => {
                         .and.emit(load.OrderBookContract, "OrderClosedEvent")
                         .withArgs(makerOrderIds[i + 2], maker.address, anyValue, anyValue, anyValue, OrderSide.SELL, OrderCloseReason.FILLED);
                 }
-                await expect(tx)
-                    .changeTokenBalances(
-                        load.USDC,
+                await expectTokenChangeBalance(tx, load.USDC,
                         [taker, maker],
                         [
-                            new BN(takerAmount).times(-1).toString(),
-                            new BN(takerAmount).minus(new BN(takerAmount).times(load.makerFeeBps).div(10000)).toString()
+                            new BN(takerAmount).times(-1),
+                            new BN(takerAmount).minus(new BN(takerAmount).times(load.makerFeeBps).div(10000))
                         ]);
 
-                await expect(tx)
-                    .changeTokenBalances(
-                        load.WETH,
+                await expectTokenChangeBalance(tx, load.WETH,
                         [taker, maker],
                         [
-                            new BN(makerAmount).times(3).minus(new BN(makerAmount).times(load.takerFeeBps).times(3).div(10000)).toString(),
-                            new BN(makerAmount).times(-3).toString()
+                            new BN(makerAmount).times(3).minus(new BN(makerAmount).times(load.takerFeeBps).times(3).div(10000)),
+                            new BN(makerAmount).times(-3)
                         ]);
             }
         );

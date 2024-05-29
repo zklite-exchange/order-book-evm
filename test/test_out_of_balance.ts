@@ -5,39 +5,43 @@ import {anyValue} from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 
 describe("Blackbox testing OrderBook contract", async () => {
     it("Submit order amount greater than balance/allowance should fail", async () => {
-        const load = await loadFixture(setUpTest);
+        const load = await setUpTest();
         const bobEthBalance = await load.WETH.balanceOf(load.bob);
         const bobUsdcBalance = await load.USDC.balanceOf(load.bob);
 
         await expect(
             load.OrderBookContract.connect(load.bob).submitOrder(
-                OrderSide.BUY, load.fmtPrice(3000), bobUsdcBalance + 1n, load.expireAfter(1, 'day'), []
+                OrderSide.BUY, load.fmtPrice(3000), bobUsdcBalance + 1n,
+                await load.expireAfter(1, 'day'), []
             )
         ).to.be.revertedWith("Not enough balance");
 
         await expect(
             load.OrderBookContract.connect(load.bob).submitOrder(
-                OrderSide.SELL, load.fmtPrice(3000), bobEthBalance + 1n, load.expireAfter(1, 'day'), []
+                OrderSide.SELL, load.fmtPrice(3000), bobEthBalance + 1n,
+                await load.expireAfter(1, 'day'), []
             )
         ).to.be.revertedWith("Not enough balance");
 
 
         await expect(
             load.OrderBookContract.connect(load.bob).submitOrder(
-                OrderSide.BUY, load.fmtPrice(3000), bobUsdcBalance, load.expireAfter(1, 'day'), []
+                OrderSide.BUY, load.fmtPrice(3000), bobUsdcBalance,
+                await load.expireAfter(1, 'day'), []
             )
         ).to.be.revertedWith("Exceed quote allowance");
 
         await expect(
             load.OrderBookContract.connect(load.bob).submitOrder(
-                OrderSide.SELL, load.fmtPrice(3000), bobEthBalance, load.expireAfter(1, 'day'), []
+                OrderSide.SELL, load.fmtPrice(3000), bobEthBalance,
+                await load.expireAfter(1, 'day'), []
             )
         ).to.be.revertedWith("Exceed base allowance");
     });
 
 
     it("Balance/allowance change after order submitted -> should be closed while trying to fill", async () => {
-        const load = await loadFixture(setUpTest);
+        const load = await setUpTest();
 
         const maker = load.bob;
         for (let makerSide = OrderSide.BUY; makerSide <= OrderSide.SELL; makerSide++) {
@@ -56,11 +60,12 @@ describe("Blackbox testing OrderBook contract", async () => {
             await makerSellToken.connect(maker).approve(await load.OrderBookContract.getAddress(), 0);
 
             const takerSide = makerSide == OrderSide.BUY ? OrderSide.SELL : OrderSide.BUY;
+            const takerBalance = await makerBuyToken.balanceOf(load.alice.address);
             await makerBuyToken.connect(load.alice)
-                .approve(await load.OrderBookContract.getAddress(), await makerBuyToken.balanceOf(load.alice.address));
+                .approve(await load.OrderBookContract.getAddress(), takerBalance);
             const takerOrderId = await submitOrderHelper(
                 load.OrderBookContract, load.alice, takerSide,
-                price, await makerBuyToken.balanceOf(load.alice),
+                price, takerBalance,
                 undefined, [makerOrderId], async (tx) => {
                     await expect(tx).to.emit(load.OrderBookContract, "OrderClosedEvent")
                         .withArgs(makerOrderId, maker.address, 0, 0, 0, anyValue, OrderCloseReason.OUT_OF_ALLOWANCE);

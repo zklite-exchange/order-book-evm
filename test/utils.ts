@@ -1,11 +1,24 @@
 import hre from "hardhat";
 import BN, {BigNumber} from "bignumber.js";
-import {expect} from "chai";
+import {assert, expect} from "chai";
 import {DurationInputArg1, DurationInputArg2} from "moment";
 import moment from "moment/moment";
 import {ERC20, OrderBook} from "../typechain";
-import type {HardhatEthersSigner} from "@nomicfoundation/hardhat-ethers/signers";
-import {BigNumberish, type ContractTransactionResponse} from "ethers";
+import {
+    Addressable,
+    AddressLike,
+    BigNumberish,
+    type ContractTransactionResponse,
+    ethers,
+    TransactionResponse
+} from "ethers";
+import {Provider} from "zksync-ethers";
+import {loadFixture, time} from "@nomicfoundation/hardhat-network-helpers";
+import chai from 'chai';
+import chaiBN from 'chai-bignumber';
+
+BigNumber.config({EXPONENTIAL_AT: 1e+9});
+chai.use(chaiBN());
 
 export enum OrderSide {
     BUY = 0,
@@ -16,18 +29,42 @@ export enum OrderCloseReason {
     FILLED = 0, CANCELLED, EXPIRED, OUT_OF_BALANCE, OUT_OF_ALLOWANCE
 }
 
-BigNumber.config({ EXPONENTIAL_AT: 1e+9 });
+
+async function deployContract<T extends ethers.BaseContract>(owner: any, contractName: string, args: any[] = []): Promise<T> {
+    if (hre.network.zksync) {
+        hre.deployer.setWallet(owner);
+
+        console.log("gas", await hre.deployer.estimateDeployGas(await hre.deployer.loadArtifact(contractName), args));
+        return (await hre.deployer.deploy(contractName, args)) as any;
+    } else {
+        return (await hre.ethers.deployContract(contractName, args, owner)) as any;
+    }
+}
 
 export async function deployFakeTokens(owner: any) {
-    const WETH = await hre.ethers.deployContract("WETH", owner);
-    const USDC = await hre.ethers.deployContract("USDC", owner);
+    const WETH = await deployContract<ERC20>(owner, "WETH");
+    const USDC = await deployContract<ERC20>(owner, "USDC");
     return {
         WETH, USDC
     };
 }
 
 export async function setUpTest() {
-    const [alice, bob] = await hre.ethers.getSigners();
+    if (hre.network.zksync) return _setUpTest();
+    return loadFixture(_setUpTest);
+}
+
+async function _setUpTest() {
+    let [alice, bob] = hre.network.zksync
+        ? await hre.zksyncEthers.getWallets()
+        : await hre.ethers.getSigners();
+
+    if (hre.network.zksync) {
+        const provider = new Provider((hre.network.config as any).url, undefined, {cacheTimeout: -1});
+        alice = alice.connect(provider) as any;
+        bob = bob.connect(provider) as any;
+    }
+
     const {WETH, USDC} = await deployFakeTokens(alice);
     const ethDecimalPow = `1e${Number(await WETH.decimals())}`;
     const usdcDecimalPow = `1e${Number(await USDC.decimals())}`;
@@ -44,7 +81,8 @@ export async function setUpTest() {
         await WETH.getAddress(), await USDC.getAddress(),
         priceDecimals, minQuote, takerFeeBps, makerFeeBps
     ];
-    const OrderBookContract = await hre.ethers.deployContract("OrderBook", orderBookConstructorArgs);
+
+    const OrderBookContract = await deployContract<OrderBook>(alice, "OrderBook", orderBookConstructorArgs);
     expect(await OrderBookContract.minQuote()).to.equal(minQuote);
     expect(await OrderBookContract.makerFeeBps()).to.equal(makerFeeBps);
     expect(await OrderBookContract.takerFeeBps()).to.equal(takerFeeBps);
@@ -60,30 +98,34 @@ export async function setUpTest() {
         fmtWeth: (value: BN.Value) => new BN(value).times(ethDecimalPow).toString(),
         fmtPrice: (price: BN.Value) => new BN(price).times(usdcDecimalPow).times(priceDecimalPow)
             .div(ethDecimalPow).toString(),
-        expireAfter: (amount: DurationInputArg1, unit: DurationInputArg2) => moment().add(amount, unit).unix(),
-        approveSpending: async (token: ERC20, owner: HardhatEthersSigner, amount: BigNumberish)=>
+        expireAfter: async (amount: DurationInputArg1, unit: DurationInputArg2) =>
+            moment.unix(await currentBlockTime()).add(amount, unit).unix(),
+        approveSpending: async (token: ERC20, owner: ethers.Signer, amount: BigNumberish) =>
             token.connect(owner).approve(await OrderBookContract.getAddress(), amount)
     };
 }
 
 export const submitOrderHelper = async (
-    contract: OrderBook, owner: HardhatEthersSigner,
+    contract: OrderBook, owner: ethers.Signer,
     side: OrderSide, price: BigNumberish, amount: BigNumberish,
-    validUtil?: BigNumberish,
+    validUtil?: BigNumberish | Promise<BigNumberish>,
     orderIdsToFill?: BigNumberish[],
     extraExpect?: (tx: Promise<ContractTransactionResponse>) => Promise<void>
 ): Promise<bigint> => {
-    validUtil = validUtil ?? moment().add(1, 'day').unix();
+    // validUtil = validUtil ?? moment().add(1, 'day').unix();
+    const _validUtil = validUtil
+        ? await validUtil
+        : moment.unix(await currentBlockTime()).add(1, 'day').unix();
     let orderId = 0n;
     const tx = contract.connect(owner)
-        .submitOrder(side, price, amount, validUtil, orderIdsToFill ?? []);
+        .submitOrder(side, price, amount, _validUtil, orderIdsToFill ?? []);
     await expect(tx).to.emit(contract, "NewOrderEvent")
         .withArgs(
             (_orderId: bigint) => {
                 orderId = _orderId;
                 return true;
             },
-            owner, price, amount, side, validUtil
+            owner, price, amount, side, _validUtil
         );
     if (extraExpect) {
         await extraExpect(tx);
@@ -91,3 +133,49 @@ export const submitOrderHelper = async (
     expect(orderId).gt(0);
     return orderId;
 };
+
+export function getZkTestProvider(): Provider {
+    return new Provider((hre.network.config as any).url);
+}
+
+export async function currentBlockTime(): Promise<number> {
+    return hre.network.zksync
+        ? getZkTestProvider().send("config_getCurrentTimestamp", [])
+        : await time.latest();
+}
+
+export async function expectTokenChangeBalance(
+    tx: TransactionResponse | Promise<TransactionResponse>,
+    token: ERC20, accounts: AddressLike[], changes: BN[]
+) {
+    if (hre.network.zksync) {
+        const receipt = await (await tx).wait();
+        assert(receipt != null);
+        const actualChanges: any = {};
+        const eventFragment = token.interface.getEvent("Transfer");
+        const transferTopicHash = eventFragment.topicHash;
+        for (let i = 0; i < receipt.logs.length; i++) {
+            const log = receipt.logs[i];
+            if (log.address == await token.getAddress() && log.topics[0] === transferTopicHash) {
+                const transferEvent = token.interface.decodeEventLog(eventFragment, log.data, log.topics);
+                const from = transferEvent.from;
+                const to = transferEvent.to;
+                const value = new BN(transferEvent.value);
+                actualChanges[from] = (actualChanges[from] ?? new BN(0)).minus(value);
+                actualChanges[to] = (actualChanges[to] ?? new BN(0)).plus(value);
+            }
+        }
+        for (let i = 0; i < accounts.length; i++) {
+            const account = accounts[i];
+            const address = typeof account == 'string'
+                ? account
+                : (account as Addressable).getAddress
+                    ? await (account as Addressable).getAddress()
+                    : await account;
+            const change = actualChanges[address as string] ?? new BN(0);
+            expect(change).eq(changes[i]);
+        }
+    } else {
+        await expect(tx).changeTokenBalances(token, accounts, changes.map(it => it.toString()));
+    }
+}
