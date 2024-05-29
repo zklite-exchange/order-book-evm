@@ -7,10 +7,6 @@ import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-// BEGIN-DEBUG
-import "hardhat/console.sol";
-// END-DEBUG
-
 contract OrderBook is Ownable, ReentrancyGuard {
 
     enum OrderSide {
@@ -144,9 +140,6 @@ contract OrderBook is Ownable, ReentrancyGuard {
         uint32 validUntil,
         uint[] calldata orderIdsToFill
     ) public nonReentrant returns (uint orderId) {
-        // BEGIN-DEBUG
-        uint startSubmitOrderGas = gasleft();
-        // END-DEBUG
         require(validUntil > block.timestamp, "Invalid validUntil");
         require(price > 0, "Invalid price");
         require(amount > 0, "Invalid amount");
@@ -184,25 +177,14 @@ contract OrderBook is Ownable, ReentrancyGuard {
 
         if (orderIdsToFill.length > 0) {
             for (uint i = 0; i < orderIdsToFill.length;) {
-                // BEGIN-DEBUG
-                uint startGas = gasleft();
-                // END-DEBUG
 
                 if (tryFillOrder(order, activeOrders[orderIdsToFill[i]])) {
                     emit OrderClosedEvent(
                         orderId, msg.sender, order.receivedAmt, amount, order.feeAmt,
                         side, OrderCloseReason.FILLED
                     );
-                    // BEGIN-DEBUG
-                    console.log("Fill order %d cost %d gas", orderIdsToFill[i], startGas - gasleft());
-                    console.log("Submit order %d total %d gas", orderId, startSubmitOrderGas - gasleft());
-                    // END-DEBUG
                     return orderId;
                 }
-
-                // BEGIN-DEBUG
-                console.log("Fill order %d cost %d gas", orderIdsToFill[i], startGas - gasleft());
-                // END-DEBUG
 
                 unchecked {i++;}
             }
@@ -216,9 +198,6 @@ contract OrderBook is Ownable, ReentrancyGuard {
         } else {
             user.spendingBase += order.unfilledAmt;
         }
-        // BEGIN-DEBUG
-        console.log("Submit order %d total %d gas", orderId, startSubmitOrderGas - gasleft());
-        // END-DEBUG
         return orderId;
     }
 
@@ -469,12 +448,6 @@ contract OrderBook is Ownable, ReentrancyGuard {
             order.receivedAmt, order.amount - order.unfilledAmt, order.feeAmt,
             order.side, reason
         );
-
-        // BEGIN-DEBUG
-        console.log("Order %d closed receiveAmt = %d", order.id, order.receivedAmt);
-        console.log("Order %d closed unfilledAmt = %d", order.id, order.unfilledAmt);
-        console.log("Order %d closed feeAmt = %d", order.id, order.feeAmt);
-        // END-DEBUG
 
         delete activeOrders[order.id];
     }

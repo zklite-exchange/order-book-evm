@@ -1,40 +1,16 @@
 import {HardhatUserConfig} from "hardhat/config";
+import "zksync-ethers";
 import "@nomicfoundation/hardhat-toolbox";
 import "@nomicfoundation/hardhat-ethers";
-import "solidity-coverage";
-import {internalTask} from 'hardhat/config';
-import {TASK_COMPILE_SOLIDITY_READ_FILE} from 'hardhat/builtin-tasks/task-names';
+import "@matterlabs/hardhat-zksync-ethers";
 import dotenv from "dotenv";
-import * as fs from "fs";
-import assert from "node:assert";
-dotenv.config();
+import "@matterlabs/hardhat-zksync-deploy";
+import "@matterlabs/hardhat-zksync-solc";
+import "@matterlabs/hardhat-zksync-node";
+import "solidity-coverage";
+import "hardhat-gas-reporter";
 
-internalTask(TASK_COMPILE_SOLIDITY_READ_FILE).setAction(
-    async (params, hre, runSuper) => {
-        if (process.env.SOLIDITY_ENV !== 'debug') {
-            const {absolutePath} = params;
-            if (absolutePath?.startsWith(hre.config.paths.sources)) {
-                let debugBlockStarted = false;
-                const lines = fs.readFileSync(absolutePath).toString('utf-8').split(/\r?\n/)
-                    .map(line => {
-                        if (debugBlockStarted) {
-                            if (/\/\/\s*END-DEBUG/.test(line)) {
-                                debugBlockStarted = false;
-                            }
-                            return "";
-                        } else if (/\/\/\s*BEGIN-DEBUG/.test(line)) {
-                            debugBlockStarted = true;
-                            return "";
-                        }
-                        return line;
-                    });
-                assert(!debugBlockStarted, "UNMATCHED BEGIN-DEBUG / END-DEBUG");
-                return lines.join("\n");
-            }
-        }
-        return runSuper(params);
-    }
-);
+dotenv.config();
 
 const config: HardhatUserConfig = {
     solidity: {
