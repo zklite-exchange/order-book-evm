@@ -11,7 +11,7 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import "hardhat/console.sol";
 // END-DEBUG
 
-contract OrderBook is Ownable {
+contract OrderBook is Ownable, ReentrancyGuard {
 
     enum OrderSide {
         BUY, SELL
@@ -113,18 +113,18 @@ contract OrderBook is Ownable {
         makerFeeBps = _makerFeeBps;
     }
 
-    modifier nonReentrant {
-        assembly {
-            if tload(TKEY_REENTRANCY_GUARD) { revert(0, 0) }
-            tstore(TKEY_REENTRANCY_GUARD, 1)
-        }
-        _;
-        // Unlocks the guard, making the pattern composable.
-        // After the function exits, it can be called again, even in the same transaction.
-        assembly {
-            tstore(TKEY_REENTRANCY_GUARD, 0)
-        }
-    }
+//    modifier nonReentrant {
+//        assembly {
+//            if tload(TKEY_REENTRANCY_GUARD) { revert(0, 0) }
+//            tstore(TKEY_REENTRANCY_GUARD, 1)
+//        }
+//        _;
+//        // Unlocks the guard, making the pattern composable.
+//        // After the function exits, it can be called again, even in the same transaction.
+//        assembly {
+//            tstore(TKEY_REENTRANCY_GUARD, 0)
+//        }
+//    }
 
     function setMinQuote(uint _minQuote) public onlyOwner {
         minQuote = _minQuote;
