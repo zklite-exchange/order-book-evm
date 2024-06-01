@@ -9,3 +9,5 @@ cache-zk
 demo
 deployments-zk
 artifacts-zk
+era_test_node.log
+coverage.json

@@ -41,6 +41,7 @@ const config: HardhatUserConfig = {
             url: "https://sepolia.era.zksync.dev",
             ethNetwork: "sepolia",
             zksync: true,
+            chainId: 300,
             // @ts-expect-error unknown
             verifyURL: "https://explorer.sepolia.era.zksync.dev/contract_verification",
         },

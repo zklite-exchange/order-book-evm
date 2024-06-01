@@ -7,17 +7,36 @@ import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-contract OrderBook is Ownable, ReentrancyGuard {
+contract OrderBook is ReentrancyGuard {
 
     enum OrderSide {
         BUY, SELL
     }
+
+    enum TimeInForce {
+        GTC, IOK, FOK
+    }
+
+    error NotFilled();
+
+    event NewPairConfigEvent (
+        ERC20 indexed baseToken,
+        ERC20 indexed quoteToken,
+        uint minExecuteQuote,
+        uint minQuoteChargeFee,
+        uint16 indexed id,
+        uint16 takerFeeBps,
+        uint16 makerFeeBps,
+        uint8 priceDecimals,
+        bool active
+    );
 
     event NewOrderEvent (
         uint indexed orderId,
         address indexed owner,
         uint price,
         uint amount,
+        uint16 indexed pairId,
         OrderSide side,
         uint40 validUntil
     );
@@ -25,17 +44,18 @@ contract OrderBook is Ownable, ReentrancyGuard {
     event FillEvent (
         uint indexed makerOrderId,
         uint indexed takerOrderId,
-        address indexed maker,
+        address maker,
         address taker,
         uint executedQuote,
         uint executedBase,
         uint feeTaker,
         uint feeMaker,
+        uint16 indexed pairId,
         OrderSide takerSide
     );
 
     enum OrderCloseReason {
-        FILLED, CANCELLED, EXPIRED, OUT_OF_BALANCE, OUT_OF_ALLOWANCE
+        FILLED, CANCELLED, EXPIRED, OUT_OF_BALANCE, OUT_OF_ALLOWANCE, EXPIRED_IOK
     }
 
     event OrderClosedEvent (
@@ -44,6 +64,7 @@ contract OrderBook is Ownable, ReentrancyGuard {
         uint receivedAmt,
         uint executedAmt,
         uint feeAmt,
+        uint16 indexed pairId,
         OrderSide side,
         OrderCloseReason reason
     );
@@ -56,133 +77,175 @@ contract OrderBook is Ownable, ReentrancyGuard {
         uint unfilledAmt;
         uint receivedAmt; // receivedAmt included fee, actual amount received = receivedAmt - feeAmt
         uint feeAmt;
+        uint16 pairId;
         OrderSide side;
         uint40 validUntil;
     }
 
-    struct User {
-        EnumerableSet.UintSet activeOrderIds;
-        uint spendingBase;
-        uint spendingQuote;
+    struct Pair {
+        ERC20 baseToken; // immutable
+        ERC20 quoteToken; // immutable
+        uint minExecuteQuote;
+        uint minQuoteChargeFee;
+        uint16 id; // immutable
+        uint16 takerFeeBps;
+        uint16 makerFeeBps;
+        uint8 priceDecimals; // immutable
+        bool active;
     }
 
-    uint constant public TKEY_REENTRANCY_GUARD = 0;
+    uint internal orderCount = 0;
+    uint internal pairCounts = 0;
 
-    ERC20 public immutable baseToken;
-    ERC20 public immutable quoteToken;
-    uint8 public immutable priceDecimals;
-    uint private immutable priceDecimalPow;
-
-    uint public minQuote;
-    uint16 public takerFeeBps;
-    uint16 public makerFeeBps;
-
-    uint public orderCount = 0;
     mapping(uint => Order) internal activeOrders;
-    mapping(address => User) internal users;
     EnumerableSet.UintSet internal activeOrderIds;
+    mapping(uint => Pair) internal pairs;
+    EnumerableSet.UintSet internal activePairIds;
+    mapping(address => EnumerableSet.UintSet) internal userActiveOrderIds;
+    mapping(address => mapping(ERC20 => uint)) internal userSpendingAmount;
 
+    address internal admin;
 
-    constructor(
-        address owner,
-        ERC20 _baseToken,
-        ERC20 _quoteToken,
-        uint8 _priceDecimals,
-        uint _minQuote,
-        uint16 _takerFeeBps,
-        uint16 _makerFeeBps
-    ) Ownable(owner) {
-        require(_takerFeeBps < 1000); // < 10%, avoid accidentally set high fee
-        require(_makerFeeBps < 1000); // < 10%, avoid accidentally set high fee
+    constructor(address _admin) {
+        require(_admin != address(0), "Invalid admin address");
+        admin = _admin;
+    }
+
+    modifier onlyAdmin() {
+        if (msg.sender != admin) {
+            revert("Unauthorized access");
+        }
+        _;
+    }
+
+    function setAdmin(address newAdmin) public onlyAdmin {
+        require(newAdmin != address(0), "Invalid admin address");
+        admin = newAdmin;
+    }
+
+    function createPair(
+        ERC20 baseToken,
+        ERC20 quoteToken,
+        uint8 priceDecimals,
+        uint minExecuteQuote,
+        uint minQuoteChargeFee,
+        uint16 takerFeeBps,
+        uint16 makerFeeBps
+    ) public onlyAdmin returns (uint16 pairId) {
+        require(takerFeeBps < 1000); // < 10%, avoid accidentally set high fee
+        require(makerFeeBps < 1000); // < 10%, avoid accidentally set high fee
         require(
-            _priceDecimals < 200
-            && _priceDecimals >= _baseToken.decimals()
-            && _priceDecimals >= _quoteToken.decimals()
+            priceDecimals < 200
+            && priceDecimals >= baseToken.decimals()
+            && priceDecimals >= quoteToken.decimals()
         );
-        baseToken = _baseToken;
-        quoteToken = _quoteToken;
-        priceDecimals = _priceDecimals;
-        priceDecimalPow = 10 ** _priceDecimals;
 
-        minQuote = _minQuote;
-        takerFeeBps = _takerFeeBps;
-        makerFeeBps = _makerFeeBps;
+        pairId = uint16(++pairCounts);
+        pairs[pairId] = Pair(
+            baseToken, quoteToken, minExecuteQuote, minQuoteChargeFee,
+            pairId, takerFeeBps, makerFeeBps, priceDecimals, true
+        );
+        EnumerableSet.add(activePairIds, pairId);
+
+        emit NewPairConfigEvent(
+            baseToken, quoteToken, minExecuteQuote, minQuoteChargeFee,
+            pairId, takerFeeBps, makerFeeBps, priceDecimals, true
+        );
     }
 
-//    modifier nonReentrant {
-//        assembly {
-//            if tload(TKEY_REENTRANCY_GUARD) { revert(0, 0) }
-//            tstore(TKEY_REENTRANCY_GUARD, 1)
-//        }
-//        _;
-//        // Unlocks the guard, making the pattern composable.
-//        // After the function exits, it can be called again, even in the same transaction.
-//        assembly {
-//            tstore(TKEY_REENTRANCY_GUARD, 0)
-//        }
-//    }
+    function setMinQuote(uint16 pairId, uint minExecuteQuote, uint minQuoteChargeFee) public onlyAdmin {
+        Pair storage pair = pairs[pairId];
+        require(pair.id > 0, "Invalid pairId");
+        pair.minExecuteQuote = minExecuteQuote;
+        pair.minQuoteChargeFee = minQuoteChargeFee;
 
-    function setMinQuote(uint _minQuote) public onlyOwner {
-        minQuote = _minQuote;
+        emit NewPairConfigEvent(
+            pair.baseToken, pair.quoteToken, minExecuteQuote, minQuoteChargeFee,
+            pairId, pair.takerFeeBps, pair.makerFeeBps, pair.priceDecimals, pair.active
+        );
     }
 
-    function setFee(uint8 _takerFeeBps, uint8 _makerFeeBps) public onlyOwner {
-        require(_takerFeeBps < 1000); // < 10%, avoid accidentally set high fee
-        require(_makerFeeBps < 1000); // < 10%, avoid accidentally set high fee
-        takerFeeBps = _takerFeeBps;
-        makerFeeBps = _makerFeeBps;
+    function setFee(uint16 pairId, uint8 takerFeeBps, uint8 makerFeeBps) public onlyAdmin {
+        require(takerFeeBps < 1000); // < 10%, avoid accidentally set high fee
+        require(makerFeeBps < 1000); // < 10%, avoid accidentally set high fee
+
+        Pair storage pair = pairs[pairId];
+        require(pair.id > 0, "Invalid pairId");
+
+        pair.takerFeeBps = takerFeeBps;
+        pair.makerFeeBps = makerFeeBps;
+
+        emit NewPairConfigEvent(
+            pair.baseToken, pair.quoteToken, pair.minExecuteQuote, pair.minQuoteChargeFee,
+            pairId, takerFeeBps, makerFeeBps, pair.priceDecimals, pair.active
+        );
+    }
+
+    function setPairActive(uint16 pairId, bool active) public onlyAdmin {
+        Pair storage pair = pairs[pairId];
+        require(pair.id > 0, "Invalid pairId");
+        if (active != pair.active) {
+            pair.active = active;
+
+            if (active) {
+                assert(EnumerableSet.add(activePairIds, pairId));
+            } else {
+                assert(EnumerableSet.remove(activePairIds, pairId));
+            }
+
+            emit NewPairConfigEvent(
+                pair.baseToken, pair.quoteToken, pair.minExecuteQuote, pair.minQuoteChargeFee,
+                pairId, pair.takerFeeBps, pair.makerFeeBps, pair.priceDecimals, active
+            );
+        }
     }
 
     function submitOrder(
         OrderSide side,
         uint price,
         uint amount,
+        uint16 pairId,
         uint32 validUntil,
+        TimeInForce tif,
         uint[] calldata orderIdsToFill
     ) public nonReentrant returns (uint orderId) {
         require(validUntil > block.timestamp, "Invalid validUntil");
         require(price > 0, "Invalid price");
         require(amount > 0, "Invalid amount");
+
+        Pair memory pair = pairs[pairId];
+        require(pair.id > 0, "Invalid pairId");
+        require(pair.active, "Pair isn't active");
+
         if (side == OrderSide.BUY) {
-            require(amount >= minQuote, "Amount too small");
+            require(amount >= pair.minExecuteQuote, "Amount too small");
         } else {
-            require(Math.mulDiv(amount, price, priceDecimalPow) >= minQuote, "Amount too small");
+            require(Math.mulDiv(amount, price, 10 ** pair.priceDecimals) >= pair.minExecuteQuote, "Amount too small");
         }
 
-        User storage user = users[msg.sender];
-        if (side == OrderSide.BUY) {
-            if (quoteToken.balanceOf(msg.sender) < user.spendingQuote + amount) {
-                revert("Not enough balance");
-            }
-            if (quoteToken.allowance(msg.sender, address(this)) < user.spendingQuote + amount) {
-                revert("Exceed quote allowance");
-            }
-        } else {
-            if (baseToken.balanceOf(msg.sender) < user.spendingBase + amount) {
-                revert("Not enough balance");
-            }
-            if (baseToken.allowance(msg.sender, address(this)) < user.spendingBase + amount) {
-                revert("Exceed base allowance");
-            }
-        }
+        ERC20 spendingToken = side == OrderSide.BUY ? pair.quoteToken : pair.baseToken;
+        uint spendingAmount = userSpendingAmount[msg.sender][spendingToken] + amount;
+        require(spendingToken.balanceOf(msg.sender) >= spendingAmount, "Not enough balance");
+        require(spendingToken.allowance(msg.sender, address(this)) >= spendingAmount, "Exceed allowance");
 
         orderId = ++orderCount;
 
-        Order memory order = Order(orderId, msg.sender, price, amount, amount, 0, 0, side, validUntil);
+        Order memory order = Order(orderId, msg.sender, price, amount, amount, 0, 0, pairId, side, validUntil);
         emit NewOrderEvent(
             orderId, msg.sender,
             price, amount,
-            side, validUntil
+            pairId, side, validUntil
         );
 
         if (orderIdsToFill.length > 0) {
             for (uint i = 0; i < orderIdsToFill.length;) {
-
-                if (tryFillOrder(order, activeOrders[orderIdsToFill[i]])) {
+                tryFillOrder(pair, order, activeOrders[orderIdsToFill[i]]);
+                if (order.unfilledAmt == 0) {
                     emit OrderClosedEvent(
                         orderId, msg.sender, order.receivedAmt, amount, order.feeAmt,
-                        side, OrderCloseReason.FILLED
+                        pairId, side, OrderCloseReason.FILLED
                     );
+
                     return orderId;
                 }
 
@@ -190,41 +253,44 @@ contract OrderBook is Ownable, ReentrancyGuard {
             }
         }
 
-        activeOrders[orderId] = order;
-        EnumerableSet.add(activeOrderIds, orderId);
-        EnumerableSet.add(user.activeOrderIds, orderId);
-        if (side == OrderSide.BUY) {
-            user.spendingQuote += order.unfilledAmt;
+        if (tif == TimeInForce.GTC) {
+            activeOrders[orderId] = order;
+            EnumerableSet.add(activeOrderIds, orderId);
+            EnumerableSet.add(userActiveOrderIds[msg.sender], orderId);
+            userSpendingAmount[msg.sender][spendingToken] += order.unfilledAmt;
+        } else if (tif == TimeInForce.IOK) {
+            emit OrderClosedEvent(
+                orderId, msg.sender, order.receivedAmt, amount - order.unfilledAmt, order.feeAmt,
+                pairId, side, OrderCloseReason.EXPIRED_IOK
+            );
         } else {
-            user.spendingBase += order.unfilledAmt;
+            revert NotFilled();
         }
-        return orderId;
     }
 
-    /**
-    @return true if taker order is filled 100%
-    */
-    function tryFillOrder(Order memory takerOrder, Order storage makerOrder) private returns (bool) {
+    function tryFillOrder(Pair memory pair, Order memory takerOrder, Order storage makerOrder) private returns (bool) {
         if (makerOrder.id == 0) return false; // order no longer active, skip
         if (makerOrder.validUntil < block.timestamp) {
             closeOrderUnsafe(makerOrder, OrderCloseReason.EXPIRED);
             return false;
         }
+        if (makerOrder.pairId != takerOrder.pairId) return false; // invalid pair, skip
         if (makerOrder.side == takerOrder.side) return false; // invalid side, skip
         if (makerOrder.owner == takerOrder.owner) return false; // can't fill self order, skip
 
-        //**! in case partial fill, unfilled amount must have notional value in quote >= minQuote
+        //**! in case partial fill, unfilled amount must have notional value in quote >= minExecuteQuote
 
+        uint priceDecimalPow = 10 ** pair.priceDecimals;
         if (takerOrder.side == OrderSide.BUY) {
             // if sell price > buy price, skip
             if (makerOrder.price > takerOrder.price) return false;
 
             uint makerUnfilledBase = makerOrder.unfilledAmt;
-            if (baseToken.balanceOf(makerOrder.owner) < makerUnfilledBase) {
+            if (pair.baseToken.balanceOf(makerOrder.owner) < makerUnfilledBase) {
                 closeOrderUnsafe(makerOrder, OrderCloseReason.OUT_OF_BALANCE);
                 return false;
             }
-            if (baseToken.allowance(makerOrder.owner, address(this)) < makerUnfilledBase) {
+            if (pair.baseToken.allowance(makerOrder.owner, address(this)) < makerUnfilledBase) {
                 closeOrderUnsafe(makerOrder, OrderCloseReason.OUT_OF_ALLOWANCE);
                 return false;
             }
@@ -241,42 +307,50 @@ contract OrderBook is Ownable, ReentrancyGuard {
             } else {
                 if (makerUnfilledQuote > takerUnfilledQuote) {
                     unchecked {
-                        if (makerUnfilledQuote - takerUnfilledQuote >= minQuote) {
+                        if (makerUnfilledQuote - takerUnfilledQuote >= pair.minExecuteQuote) {
                             executeQuote = takerUnfilledQuote;
-                        } else if (takerUnfilledQuote >= minQuote * 2) {
-                            executeQuote = takerUnfilledQuote - minQuote;
+                        } else if (takerUnfilledQuote >= pair.minExecuteQuote * 2) {
+                            executeQuote = takerUnfilledQuote - pair.minExecuteQuote;
                         } else {
-                            // can't enforce the logic that unfilled amount of both maker and taker must >= minQuote
+                            // can't enforce the logic that unfilled amount of both maker and taker must >= pair.minExecuteQuote
                             return false;
                         }
                     }
                     executeBase = Math.mulDiv(executeQuote, priceDecimalPow, makerOrder.price);
                 } else {
                     unchecked {
-                        if (takerUnfilledQuote - makerUnfilledQuote >= minQuote) {
+                        if (takerUnfilledQuote - makerUnfilledQuote >= pair.minExecuteQuote) {
                             executeQuote = makerUnfilledQuote;
                             executeBase = makerUnfilledBase;
-                        } else if (makerUnfilledQuote >= minQuote * 2) {
-                            executeQuote = makerUnfilledQuote - minQuote;
+                        } else if (makerUnfilledQuote >= pair.minExecuteQuote * 2) {
+                            executeQuote = makerUnfilledQuote - pair.minExecuteQuote;
                             executeBase = Math.mulDiv(executeQuote, priceDecimalPow, makerOrder.price);
                         } else {
-                            // can't enforce the logic that unfilled amount of both maker and taker must >= minQuote
+                            // can't enforce the logic that unfilled amount of both maker and taker must >= pair.minExecuteQuote
                             return false;
                         }
                     }
                 }
             }
-            uint quoteFee = makerFeeBps > 0 ? Math.mulDiv(executeQuote, makerFeeBps, 10000) : 0;
-            uint baseFee = takerFeeBps > 0 ? Math.mulDiv(executeBase, takerFeeBps, 10000) : 0;
-
-            baseToken.transferFrom(makerOrder.owner, takerOrder.owner, executeBase - baseFee);
-            if (baseFee > 0) {
-                baseToken.transferFrom(makerOrder.owner, address(this), baseFee);
+            uint quoteFee;
+            uint baseFee;
+            if (executeQuote >= pair.minQuoteChargeFee) {
+                if (pair.makerFeeBps > 0) {
+                    quoteFee = Math.mulDiv(executeQuote, pair.makerFeeBps, 10000);
+                }
+                if (pair.takerFeeBps > 0) {
+                    baseFee = Math.mulDiv(executeBase, pair.takerFeeBps, 10000);
+                }
             }
 
-            quoteToken.transferFrom(takerOrder.owner, makerOrder.owner, executeQuote - quoteFee);
+            pair.baseToken.transferFrom(makerOrder.owner, takerOrder.owner, executeBase - baseFee);
+            if (baseFee > 0) {
+                pair.baseToken.transferFrom(makerOrder.owner, admin, baseFee);
+            }
+
+            pair.quoteToken.transferFrom(takerOrder.owner, makerOrder.owner, executeQuote - quoteFee);
             if (quoteFee > 0) {
-                quoteToken.transferFrom(takerOrder.owner, address(this), quoteFee);
+                pair.quoteToken.transferFrom(takerOrder.owner, admin, quoteFee);
             }
 
             emit FillEvent(
@@ -288,18 +362,19 @@ contract OrderBook is Ownable, ReentrancyGuard {
                 executeBase,
                 baseFee,
                 quoteFee,
+                takerOrder.pairId,
                 OrderSide.BUY
             );
-
 
             unchecked {
                 makerOrder.unfilledAmt -= executeBase;
                 makerOrder.receivedAmt += executeQuote;
                 makerOrder.feeAmt += quoteFee;
-                users[makerOrder.owner].spendingBase -= executeBase;
-                if (executeBase == makerUnfilledBase) {
-                    closeOrderUnsafe(makerOrder, OrderCloseReason.FILLED);
-                }
+            }
+            userSpendingAmount[makerOrder.owner][pair.baseToken] -= executeBase;
+            if (makerUnfilledBase == executeBase) {
+                // filled 100%
+                closeOrderUnsafe(makerOrder, OrderCloseReason.FILLED);
             }
 
             unchecked {
@@ -308,17 +383,17 @@ contract OrderBook is Ownable, ReentrancyGuard {
                 takerOrder.feeAmt += baseFee;
             }
 
-            return takerOrder.unfilledAmt == 0;
+            return true;
         } else {
             // if buy price < sell price, skip
             if (makerOrder.price < takerOrder.price) return false;
 
             uint makerUnfilledQuote = makerOrder.unfilledAmt;
-            if (quoteToken.balanceOf(makerOrder.owner) < makerUnfilledQuote) {
+            if (pair.quoteToken.balanceOf(makerOrder.owner) < makerUnfilledQuote) {
                 closeOrderUnsafe(makerOrder, OrderCloseReason.OUT_OF_BALANCE);
                 return false;
             }
-            if (quoteToken.allowance(makerOrder.owner, address(this)) < makerUnfilledQuote) {
+            if (pair.quoteToken.allowance(makerOrder.owner, address(this)) < makerUnfilledQuote) {
                 closeOrderUnsafe(makerOrder, OrderCloseReason.OUT_OF_ALLOWANCE);
                 return false;
             }
@@ -334,44 +409,51 @@ contract OrderBook is Ownable, ReentrancyGuard {
             } else {
                 if (makerUnfilledQuote > takerUnfilledQuote) {
                     unchecked {
-                        if (makerUnfilledQuote - takerUnfilledQuote >= minQuote) {
+                        if (makerUnfilledQuote - takerUnfilledQuote >= pair.minExecuteQuote) {
                             executeQuote = takerUnfilledQuote;
                             executeBase = takerUnfilledBase;
-                        } else if (takerUnfilledQuote >= minQuote * 2) {
-                            executeQuote = takerUnfilledQuote - minQuote;
+                        } else if (takerUnfilledQuote >= pair.minExecuteQuote * 2) {
+                            executeQuote = takerUnfilledQuote - pair.minExecuteQuote;
                             executeBase = Math.mulDiv(executeQuote, priceDecimalPow, makerOrder.price);
                         } else {
-                            // can't enforce the logic that unfilled amount of both maker and taker must >= minQuote
+                            // can't enforce the logic that unfilled amount of both maker and taker must >= pair.minExecuteQuote
                             return false;
                         }
                     }
                 } else {
                     unchecked {
-                        if (takerUnfilledQuote - makerUnfilledQuote >= minQuote) {
+                        if (takerUnfilledQuote - makerUnfilledQuote >= pair.minExecuteQuote) {
                             executeQuote = makerUnfilledQuote;
-                        } else if (makerUnfilledQuote >= minQuote * 2) {
-                            executeQuote = makerUnfilledQuote - minQuote;
+                        } else if (makerUnfilledQuote >= pair.minExecuteQuote * 2) {
+                            executeQuote = makerUnfilledQuote - pair.minExecuteQuote;
                         } else {
-                            // can't enforce the logic that unfilled amount of both maker and taker must >= minQuote
+                            // can't enforce the logic that unfilled amount of both maker and taker must >= pair.minExecuteQuote
                             return false;
                         }
                     }
                     executeBase = Math.mulDiv(executeQuote, priceDecimalPow, makerOrder.price);
                 }
             }
-            uint quoteFee = takerFeeBps > 0 ? Math.mulDiv(executeQuote, takerFeeBps, 10000) : 0;
-            uint baseFee = makerFeeBps > 0 ? Math.mulDiv(executeBase, makerFeeBps, 10000) : 0;
+            uint quoteFee;
+            uint baseFee;
+            if (executeQuote >= pair.minQuoteChargeFee) {
+                if (pair.takerFeeBps > 0) {
+                    quoteFee = Math.mulDiv(executeQuote, pair.takerFeeBps, 10000);
+                }
+                if (pair.makerFeeBps > 0) {
+                    baseFee = Math.mulDiv(executeBase, pair.makerFeeBps, 10000);
+                }
+            }
 
-            quoteToken.transferFrom(makerOrder.owner, takerOrder.owner, executeQuote - quoteFee);
+            pair.quoteToken.transferFrom(makerOrder.owner, takerOrder.owner, executeQuote - quoteFee);
             if (quoteFee > 0) {
-                quoteToken.transferFrom(makerOrder.owner, address(this), quoteFee);
+                pair.quoteToken.transferFrom(makerOrder.owner, admin, quoteFee);
             }
 
-            baseToken.transferFrom(takerOrder.owner, makerOrder.owner, executeBase - baseFee);
+            pair.baseToken.transferFrom(takerOrder.owner, makerOrder.owner, executeBase - baseFee);
             if (baseFee > 0) {
-                baseToken.transferFrom(takerOrder.owner, address(this), baseFee);
+                pair.baseToken.transferFrom(takerOrder.owner, admin, baseFee);
             }
-
 
             emit FillEvent(
                 makerOrder.id,
@@ -382,6 +464,7 @@ contract OrderBook is Ownable, ReentrancyGuard {
                 executeBase,
                 quoteFee,
                 baseFee,
+                takerOrder.pairId,
                 OrderSide.SELL
             );
 
@@ -389,10 +472,11 @@ contract OrderBook is Ownable, ReentrancyGuard {
                 makerOrder.unfilledAmt -= executeQuote;
                 makerOrder.receivedAmt += executeBase;
                 makerOrder.feeAmt += baseFee;
-                users[makerOrder.owner].spendingQuote -= executeQuote;
-                if (executeQuote == makerUnfilledQuote) {
-                    closeOrderUnsafe(makerOrder, OrderCloseReason.FILLED);
-                }
+            }
+            userSpendingAmount[makerOrder.owner][pair.quoteToken] -= executeQuote;
+            if (executeQuote == makerUnfilledQuote) {
+                // filled 100%
+                closeOrderUnsafe(makerOrder, OrderCloseReason.FILLED);
             }
 
             unchecked {
@@ -405,16 +489,28 @@ contract OrderBook is Ownable, ReentrancyGuard {
         }
     }
 
+    function getActivePairIds() public view returns (uint[] memory) {
+        return EnumerableSet.values(activePairIds);
+    }
+
+    function getPair(uint16 pairId) public view returns (Pair memory) {
+        return pairs[pairId];
+    }
+
     function getActiveOrderIds() public view returns (uint[] memory) {
         return EnumerableSet.values(activeOrderIds);
     }
 
     function getActiveOrderIdsOf(address who) public view returns (uint[] memory) {
-        return EnumerableSet.values(users[who].activeOrderIds);
+        return EnumerableSet.values(userActiveOrderIds[who]);
     }
 
     function getOrder(uint orderId) public view returns (Order memory) {
         return activeOrders[orderId];
+    }
+
+    function getSpendingAmount(address user, ERC20 token) public view returns (uint) {
+        return userSpendingAmount[user][token];
     }
 
     function cancelOrder(uint orderId) public nonReentrant {
@@ -427,28 +523,27 @@ contract OrderBook is Ownable, ReentrancyGuard {
     }
 
     function closeOrderUnsafe(Order storage order, OrderCloseReason reason) private {
-        User storage user = users[order.owner];
-        assert(EnumerableSet.remove(activeOrderIds, order.id));
-        assert(EnumerableSet.remove(user.activeOrderIds, order.id));
+        uint orderId = order.id;
+        address owner = order.owner;
+
+        EnumerableSet.UintSet storage _userActiveOrderIds = userActiveOrderIds[owner];
+        assert(EnumerableSet.remove(activeOrderIds, orderId));
+        assert(EnumerableSet.remove(_userActiveOrderIds, orderId));
 
         if (reason != OrderCloseReason.FILLED) {
+            Pair memory pair = pairs[order.pairId];
             if (order.side == OrderSide.BUY) {
-                user.spendingQuote -= order.unfilledAmt;
+                userSpendingAmount[owner][pair.quoteToken] -= order.unfilledAmt;
             } else {
-                user.spendingBase -= order.unfilledAmt;
+                userSpendingAmount[owner][pair.baseToken] -= order.unfilledAmt;
             }
         }
 
-        if (EnumerableSet.length(user.activeOrderIds) == 0) {
-            assert(user.spendingQuote == 0 && user.spendingBase == 0);
-        }
-
         emit OrderClosedEvent(
-            order.id, order.owner,
-            order.receivedAmt, order.amount - order.unfilledAmt, order.feeAmt,
-            order.side, reason
+            orderId, owner, order.receivedAmt, order.amount - order.unfilledAmt, order.feeAmt,
+            order.pairId, order.side, reason
         );
 
-        delete activeOrders[order.id];
+        delete activeOrders[orderId];
     }
 }
