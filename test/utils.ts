@@ -81,7 +81,8 @@ async function _setUpTest() {
     const takerFeeBps = 0.1 / 0.01; // 0.1% = 10 basis points
     const makerFeeBps = 0.1 / 0.01; // 0.1% = 10 basis points
     const priceDecimals = 20;
-    const minQuote = new BN(5).times(usdcDecimalPow).toString(); // 5 USDC
+    const minExecuteQuote = new BN(5).times(usdcDecimalPow).toString(); // 5 USDC
+    const minQuoteChargeFee = minExecuteQuote;
     const orderBookConstructorArgs = [admin.address];
     const OrderBookContract = await deployContract<OrderBook>(admin, "OrderBook", orderBookConstructorArgs);
     const wethAddress = await WETH.getAddress();
@@ -91,11 +92,11 @@ async function _setUpTest() {
         OrderBookContract.connect(admin)
             .createPair(
                 wethAddress, usdcAddress,
-                priceDecimals, minQuote, minQuote, takerFeeBps, makerFeeBps
+                priceDecimals, minExecuteQuote, minQuoteChargeFee, takerFeeBps, makerFeeBps
             )
     ).to.emit(OrderBookContract, "NewPairConfigEvent")
         .withArgs(
-            wethAddress, usdcAddress, minQuote, minQuote,
+            wethAddress, usdcAddress, minExecuteQuote, minQuoteChargeFee,
             (id: bigint) => {
                 defaultPairId = id;
                 return true;
@@ -109,7 +110,7 @@ async function _setUpTest() {
     return {
         alice, bob, admin, WETH, USDC, wethAddress, usdcAddress,
         OrderBookContract, defaultPairId,
-        takerFeeBps, makerFeeBps, minQuote,
+        takerFeeBps, makerFeeBps, minExecuteQuote, minQuoteChargeFee,
         usdcDecimalPow, ethDecimalPow, priceDecimalPow,
         fmtUsdc: (value: BN.Value) => new BN(value).times(usdcDecimalPow).toString(),
         fmtWeth: (value: BN.Value) => new BN(value).times(ethDecimalPow).toString(),
@@ -122,36 +123,6 @@ async function _setUpTest() {
         uintMax
     };
 }
-
-// export const submitOrderHelper = async (
-//     contract: OrderBook, owner: ethers.Signer, pairId: BigNumberish,
-//     side: OrderSide, price: BigNumberish, amount: BigNumberish,
-//     validUtil?: BigNumberish | Promise<BigNumberish>,
-//     tif?: TimeInForce,
-//     orderIdsToFill?: BigNumberish[],
-//     extraExpect?: (tx: Promise<ContractTransactionResponse>) => Promise<void>
-// ): Promise<bigint> => {
-//     // validUtil = validUtil ?? moment().add(1, 'day').unix();
-//     const _validUtil = validUtil
-//         ? await validUtil
-//         : moment.unix(await currentBlockTime()).add(1, 'day').unix();
-//     let orderId = 0n;
-//     const tx = contract.connect(owner)
-//         .submitOrder(side, price, amount, pairId, _validUtil, tif ?? TimeInForce.GTC, orderIdsToFill ?? []);
-//     await expect(tx).to.emit(contract, "NewOrderEvent")
-//         .withArgs(
-//             (_orderId: bigint) => {
-//                 orderId = _orderId;
-//                 return true;
-//             },
-//             owner, price, amount, pairId, side, _validUtil
-//         );
-//     if (extraExpect) {
-//         await extraExpect(tx);
-//     }
-//     expect(orderId).gt(0);
-//     return orderId;
-// };
 
 export function getZkTestProvider(): Provider {
     return new Provider((hre.network.config as any).url);

@@ -54,7 +54,7 @@ describe("OrderBook - Blackbox testing admin config", async () => {
         await expect(load.OrderBookContract.connect(load.admin).setFee(load.defaultPairId, 20, 30))
             .to.be.emit(load.OrderBookContract, "NewPairConfigEvent")
             .withArgs(
-                load.wethAddress, load.usdcAddress, load.minQuote, load.minQuote,
+                load.wethAddress, load.usdcAddress, load.minExecuteQuote, load.minQuoteChargeFee,
                 load.defaultPairId, 20, 30,
                 (decimals: bigint) => new BN(load.priceDecimalPow).eq((10n**decimals).toString()),
                 true
@@ -69,7 +69,7 @@ describe("OrderBook - Blackbox testing admin config", async () => {
         await expect(load.OrderBookContract.connect(load.admin).setPairActive(load.defaultPairId, false))
             .to.be.emit(load.OrderBookContract, "NewPairConfigEvent")
             .withArgs(
-                load.wethAddress, load.usdcAddress, load.minQuote, load.minQuote,
+                load.wethAddress, load.usdcAddress, load.minExecuteQuote, load.minQuoteChargeFee,
                 load.defaultPairId, load.takerFeeBps, load.makerFeeBps,
                 (decimals: bigint) => new BN(load.priceDecimalPow).eq((10n**decimals).toString()),
                 false
@@ -83,7 +83,7 @@ describe("OrderBook - Blackbox testing admin config", async () => {
         await expect(load.OrderBookContract.connect(load.admin).setPairActive(load.defaultPairId, false))
             .to.be.emit(load.OrderBookContract, "NewPairConfigEvent")
             .withArgs(
-                load.wethAddress, load.usdcAddress, load.minQuote, load.minQuote,
+                load.wethAddress, load.usdcAddress, load.minExecuteQuote, load.minQuoteChargeFee,
                 load.defaultPairId, load.takerFeeBps, load.makerFeeBps,
                 (decimals: bigint) => new BN(load.priceDecimalPow).eq((10n**decimals).toString()),
                 false

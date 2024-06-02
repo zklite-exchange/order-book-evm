@@ -1,91 +1,109 @@
-import {loadFixture} from "@nomicfoundation/hardhat-network-helpers";
-import {OrderCloseReason, OrderSide, setUpTest, submitOrderHelper} from "./utils";
-import {expect} from "chai";
-import {anyValue} from "@nomicfoundation/hardhat-chai-matchers/withArgs";
+import {executeTestScenarios, OrderCloseReason, OrderSide, setUpTest} from "./utils";
 
-describe("Blackbox testing OrderBook contract", async () => {
+describe("OrderBook - Blackbox testing balance/allowance", async () => {
     it("Submit order amount greater than balance/allowance should fail", async () => {
         const load = await setUpTest();
         const bobEthBalance = await load.WETH.balanceOf(load.bob);
         const bobUsdcBalance = await load.USDC.balanceOf(load.bob);
 
-        await expect(
-            load.OrderBookContract.connect(load.bob).submitOrder(
-                OrderSide.BUY, load.fmtPrice(3000), bobUsdcBalance + 1n,
-                await load.expireAfter(1, 'day'), []
-            )
-        ).to.be.revertedWith("Not enough balance");
-
-        await expect(
-            load.OrderBookContract.connect(load.bob).submitOrder(
-                OrderSide.SELL, load.fmtPrice(3000), bobEthBalance + 1n,
-                await load.expireAfter(1, 'day'), []
-            )
-        ).to.be.revertedWith("Not enough balance");
-
-
-        await expect(
-            load.OrderBookContract.connect(load.bob).submitOrder(
-                OrderSide.BUY, load.fmtPrice(3000), bobUsdcBalance,
-                await load.expireAfter(1, 'day'), []
-            )
-        ).to.be.revertedWith("Exceed quote allowance");
-
-        await expect(
-            load.OrderBookContract.connect(load.bob).submitOrder(
-                OrderSide.SELL, load.fmtPrice(3000), bobEthBalance,
-                await load.expireAfter(1, 'day'), []
-            )
-        ).to.be.revertedWith("Exceed base allowance");
+        await executeTestScenarios(load, [{
+            submitOrder: {
+                owner: load.bob, side: OrderSide.BUY, amount: bobUsdcBalance + 1n, price: load.fmtPrice(1),
+                expectReverted: {
+                    message: "Not enough balance"
+                }
+            }
+        }, {
+            submitOrder: {
+                owner: load.bob, side: OrderSide.BUY, amount: bobUsdcBalance, price: load.fmtPrice(1),
+                expectReverted: {
+                    message: "Exceed allowance"
+                }
+            }
+        }, {
+            submitOrder: {
+                owner: load.bob, side: OrderSide.SELL, amount: bobEthBalance + 1n, price: load.fmtPrice(1),
+                expectReverted: {
+                    message: "Not enough balance"
+                }
+            }
+        }, {
+            submitOrder: {
+                owner: load.bob, side: OrderSide.SELL, amount: bobEthBalance, price: load.fmtPrice(1),
+                expectReverted: {
+                    message: "Exceed allowance"
+                }
+            }
+        }]);
     });
 
-
-    it("Balance/allowance change after order submitted -> should be closed while trying to fill", async () => {
+    it("After order submitted, balance/allowance change < unfilledAmount  -> should be closed while trying to fill", async () => {
         const load = await setUpTest();
-
         const maker = load.bob;
+        const taker = load.alice;
         for (let makerSide = OrderSide.BUY; makerSide <= OrderSide.SELL; makerSide++) {
             const makerSellToken = makerSide == OrderSide.BUY ? load.USDC : load.WETH;
             const makerBuyToken = makerSide == OrderSide.BUY ? load.WETH : load.USDC;
-            const price = load.fmtPrice(3000);
-            const makerSubmit = async () => {
-                const makerBalance = await makerSellToken.balanceOf(maker.address);
-                await makerSellToken.connect(maker).approve(await load.OrderBookContract.getAddress(), makerBalance);
-                return await submitOrderHelper(load.OrderBookContract, maker, makerSide, price, makerBalance);
-            };
-
-
-            let makerOrderId = await makerSubmit();
-            // test reset allowance
-            await makerSellToken.connect(maker).approve(await load.OrderBookContract.getAddress(), 0);
-
             const takerSide = makerSide == OrderSide.BUY ? OrderSide.SELL : OrderSide.BUY;
-            const takerBalance = await makerBuyToken.balanceOf(load.alice.address);
-            await makerBuyToken.connect(load.alice)
-                .approve(await load.OrderBookContract.getAddress(), takerBalance);
-            const takerOrderId = await submitOrderHelper(
-                load.OrderBookContract, load.alice, takerSide,
-                price, takerBalance,
-                undefined, [makerOrderId], async (tx) => {
-                    await expect(tx).to.emit(load.OrderBookContract, "OrderClosedEvent")
-                        .withArgs(makerOrderId, maker.address, 0, 0, 0, anyValue, OrderCloseReason.OUT_OF_ALLOWANCE);
-                });
+            const price = load.fmtPrice(1);
+            await executeTestScenarios(load, [{
+                updateAllowance: [
+                    {from: maker, token: makerSellToken, amount: 'max'},
+                    {from: taker, token: makerBuyToken, amount: 'max'},
+                ],
+            }, {
+                submitOrder: {
+                    alias: 'makerOrder1', owner: maker, side: makerSide, price,
+                    amount: await makerSellToken.balanceOf(maker)
+                }
+            }, {
+                updateAllowance: {
+                    // reset allowance
+                    from: maker, token: makerSellToken, amount: 0
+                }
+            }, {
+                submitOrder: {
+                    alias: 'takerOrder1', owner: taker, side: takerSide, price,
+                    amount: await makerBuyToken.balanceOf(taker), orderAliasesToFill: ['makerOrder1'],
+                    expectNoFill: true,
+                    expectClosed: [{
+                        alias: 'makerOrder1', reason: OrderCloseReason.OUT_OF_ALLOWANCE,
+                        executeAmt: 0, receiveAmt: 0, feeAmt: 0
+                    }]
+                }
+            }, {
+                updateAllowance: {
+                    from: maker, token: makerSellToken, amount: 'max'
+                }
 
-            await load.OrderBookContract.connect(load.alice).cancelOrder(takerOrderId);
-
-
-            makerOrderId = await makerSubmit();
-            // test not enough balance
-            await makerSellToken.connect(maker)
-                .transfer(await load.OrderBookContract.getAddress(), await makerSellToken.balanceOf(maker.address));
-
-            await submitOrderHelper(
-                load.OrderBookContract, load.alice, takerSide,
-                price, await makerBuyToken.balanceOf(load.alice),
-                undefined, [makerOrderId], async (tx) => {
-                    await expect(tx).to.emit(load.OrderBookContract, "OrderClosedEvent")
-                        .withArgs(makerOrderId, maker.address, 0, 0, 0, anyValue, OrderCloseReason.OUT_OF_BALANCE);
-                });
+                // Test again, but now try to reduce balance after order submitted
+            }, {
+                submitOrder: {
+                    alias: 'makerOrder2', owner: maker, side: makerSide, price,
+                    amount: await makerSellToken.balanceOf(maker)
+                }
+            }, {
+                run: async () => {
+                    await makerSellToken.connect(maker).transfer(taker, 1n);
+                }
+            }, {
+                submitOrder: {
+                    owner: taker, side: takerSide, price, orderAliasesToCancel: ['takerOrder1'],
+                    amount: await makerBuyToken.balanceOf(taker), orderAliasesToFill: ['makerOrder2'],
+                    expectNoFill: true,
+                    expectClosed: [{
+                        alias: 'makerOrder2', reason: OrderCloseReason.OUT_OF_BALANCE,
+                        executeAmt: 0, receiveAmt: 0, feeAmt: 0
+                    }, {
+                        alias: 'takerOrder1', reason: OrderCloseReason.CANCELLED
+                    }]
+                }
+            }, {
+                expectOrders: [
+                    {alias: 'makerOrder1', closed: true},
+                    {alias: 'makerOrder2', closed: true}
+                ]
+            }]);
         }
     });
 });
