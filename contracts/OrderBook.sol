@@ -123,6 +123,10 @@ contract OrderBook is ReentrancyGuard {
         admin = newAdmin;
     }
 
+    function getAdmin() public view returns(address) {
+        return admin;
+    }
+
     function createPair(
         ERC20 baseToken,
         ERC20 quoteToken,
