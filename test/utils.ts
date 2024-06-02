@@ -1,6 +1,6 @@
 import hre from "hardhat";
 import BN, {BigNumber} from "bignumber.js";
-import {assert, expect} from "chai";
+import chai, {assert, expect} from "chai";
 import {DurationInputArg1, DurationInputArg2} from "moment";
 import moment from "moment/moment";
 import {ERC20, OrderBook} from "../typechain";
@@ -14,7 +14,6 @@ import {
 } from "ethers";
 import {Provider} from "zksync-ethers";
 import {loadFixture, time} from "@nomicfoundation/hardhat-network-helpers";
-import chai from 'chai';
 import chaiBN from 'chai-bignumber';
 
 BigNumber.config({EXPONENTIAL_AT: 1e+9});
@@ -29,12 +28,16 @@ export enum OrderCloseReason {
     FILLED = 0, CANCELLED, EXPIRED, OUT_OF_BALANCE, OUT_OF_ALLOWANCE
 }
 
+enum TimeInForce {
+    GTC = 0, IOK, FOK
+}
 
 async function deployContract<T extends ethers.BaseContract>(owner: any, contractName: string, args: any[] = []): Promise<T> {
     if (hre.network.zksync) {
         hre.deployer.setWallet(owner);
 
-        console.log("gas", await hre.deployer.estimateDeployGas(await hre.deployer.loadArtifact(contractName), args));
+        const etaGas = await hre.deployer.estimateDeployGas(await hre.deployer.loadArtifact(contractName), args);
+        console.log(`ETA deploy ${contractName} cost ${etaGas} gas`);
         return (await hre.deployer.deploy(contractName, args)) as any;
     } else {
         return (await hre.ethers.deployContract(contractName, args, owner)) as any;
@@ -55,7 +58,7 @@ export async function setUpTest() {
 }
 
 async function _setUpTest() {
-    let [alice, bob] = hre.network.zksync
+    let [alice, bob, admin] = hre.network.zksync
         ? await hre.zksyncEthers.getWallets()
         : await hre.ethers.getSigners();
 
@@ -63,9 +66,10 @@ async function _setUpTest() {
         const provider = new Provider((hre.network.config as any).url, undefined, {cacheTimeout: -1});
         alice = alice.connect(provider) as any;
         bob = bob.connect(provider) as any;
+        admin = admin.connect(provider) as any;
     }
 
-    const {WETH, USDC} = await deployFakeTokens(alice);
+    const {WETH, USDC} = await deployFakeTokens(admin);
     const ethDecimalPow = `1e${Number(await WETH.decimals())}`;
     const usdcDecimalPow = `1e${Number(await USDC.decimals())}`;
     await WETH.transfer(bob.address, new BN(1000).times(ethDecimalPow).dp(0).toString());
@@ -76,22 +80,32 @@ async function _setUpTest() {
     const makerFeeBps = 0.1 / 0.01; // 0.1% = 10 basis points
     const priceDecimals = 20;
     const minQuote = new BN(5).times(usdcDecimalPow).toString(); // 5 USDC
-    const orderBookConstructorArgs = [
-        alice.address,
-        await WETH.getAddress(), await USDC.getAddress(),
-        priceDecimals, minQuote, takerFeeBps, makerFeeBps
-    ];
+    const orderBookConstructorArgs = [admin.address];
+    const OrderBookContract = await deployContract<OrderBook>(admin, "OrderBook", orderBookConstructorArgs);
+    const wethAddress = await WETH.getAddress();
+    const usdcAddress = await USDC.getAddress();
+    let defaultPairId = 0n;
+    await expect(
+        OrderBookContract.connect(admin)
+            .createPair(
+                wethAddress, usdcAddress,
+                priceDecimals, minQuote, minQuote, takerFeeBps, makerFeeBps
+            )
+    ).to.emit(OrderBookContract, "NewPairConfigEvent")
+        .withArgs(
+            wethAddress, usdcAddress, minQuote, minQuote,
+            (id: bigint) => {
+                defaultPairId = id;
+                return true;
+            },
+            takerFeeBps, makerFeeBps, priceDecimals, true
+        );
+    expect(defaultPairId).gt(0);
 
-    const OrderBookContract = await deployContract<OrderBook>(alice, "OrderBook", orderBookConstructorArgs);
-    expect(await OrderBookContract.minQuote()).to.equal(minQuote);
-    expect(await OrderBookContract.makerFeeBps()).to.equal(makerFeeBps);
-    expect(await OrderBookContract.takerFeeBps()).to.equal(takerFeeBps);
-    expect(await OrderBookContract.priceDecimals()).to.equal(priceDecimals);
-    expect(await OrderBookContract.baseToken()).to.equal(await WETH.getAddress());
-    expect(await OrderBookContract.quoteToken()).to.equal(await USDC.getAddress());
     const priceDecimalPow = `1e${priceDecimals}`;
     return {
-        alice, bob, WETH, USDC, OrderBookContract,
+        alice, bob, admin, WETH, USDC, wethAddress, usdcAddress,
+        OrderBookContract, defaultPairId,
         takerFeeBps, makerFeeBps, minQuote,
         usdcDecimalPow, ethDecimalPow, priceDecimalPow,
         fmtUsdc: (value: BN.Value) => new BN(value).times(usdcDecimalPow).toString(),
@@ -106,9 +120,10 @@ async function _setUpTest() {
 }
 
 export const submitOrderHelper = async (
-    contract: OrderBook, owner: ethers.Signer,
+    contract: OrderBook, owner: ethers.Signer, pairId: BigNumberish,
     side: OrderSide, price: BigNumberish, amount: BigNumberish,
     validUtil?: BigNumberish | Promise<BigNumberish>,
+    tif?: TimeInForce,
     orderIdsToFill?: BigNumberish[],
     extraExpect?: (tx: Promise<ContractTransactionResponse>) => Promise<void>
 ): Promise<bigint> => {
@@ -118,14 +133,14 @@ export const submitOrderHelper = async (
         : moment.unix(await currentBlockTime()).add(1, 'day').unix();
     let orderId = 0n;
     const tx = contract.connect(owner)
-        .submitOrder(side, price, amount, _validUtil, orderIdsToFill ?? []);
+        .submitOrder(side, price, amount, pairId, _validUtil, tif ?? TimeInForce.GTC, orderIdsToFill ?? []);
     await expect(tx).to.emit(contract, "NewOrderEvent")
         .withArgs(
             (_orderId: bigint) => {
                 orderId = _orderId;
                 return true;
             },
-            owner, price, amount, side, _validUtil
+            owner, price, amount, pairId, side, _validUtil
         );
     if (extraExpect) {
         await extraExpect(tx);
