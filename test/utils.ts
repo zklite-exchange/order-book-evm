@@ -4,13 +4,7 @@ import chai, {assert, expect} from "chai";
 import {DurationInputArg1, DurationInputArg2} from "moment";
 import moment from "moment/moment";
 import {ERC20, OrderBook} from "../typechain";
-import {
-    Addressable,
-    AddressLike,
-    BigNumberish,
-    ethers,
-    TransactionResponse
-} from "ethers";
+import {Addressable, AddressLike, BigNumberish, ethers, TransactionResponse} from "ethers";
 import {Provider} from "zksync-ethers";
 import {loadFixture, time} from "@nomicfoundation/hardhat-network-helpers";
 import chaiBN from 'chai-bignumber';
@@ -182,20 +176,29 @@ type ActionSubmitOrder = {
     tif?: TimeInForce;
     orderAliasesToFill?: string[];
     orderAliasesToCancel?: string[];
-    expectReverted?: {
-        errorName?: string,
-        message?: string,
-    }
+    expectReverted?: ExpectReverted;
     expectFills?: ExpectFill[];
     expectNoFill?: boolean;
     expectBalanceChange?: ExpectBalanceChange[];
     expectClosed?: ExpectCloseEvent[];
 };
 
+type ActionCancelOrder = {
+    alias: string | string[];
+    signer: ethers.Signer,
+    expectReverted?: ExpectReverted;
+    expectClosed?: ExpectCloseEvent[];
+};
+
+type ExpectReverted = {
+    errorName?: string,
+    message?: string,
+};
+
 type ExpectOrder = {
     alias: string,
     closed?: true,
-    owner?: string;
+    owner?: AddressLike;
     price?: BigNumberish;
     amount?: BigNumberish;
     unfilledAmt?: BigNumberish;
@@ -237,24 +240,28 @@ type ExpectBalanceChange = {
 export type TestScenarios = {
     updateAllowance?: ActionUpdateAllowance | ActionUpdateAllowance[];
     submitOrder?: ActionSubmitOrder;
-    expectOrder?: ExpectOrder;
-    expectOrders?: ExpectOrder[];
+    cancelOrder?: ActionCancelOrder;
+    expectOrder?: ExpectOrder | ExpectOrder[];
     run?: () => Promise<void>
 };
 
 export async function executeTestScenarios(load: Awaited<ReturnType<typeof setUpTest>>, scenarios: TestScenarios[]) {
     const orderAlias2Id: any = {};
-    const getOrderIdByAlias = (alias: string) => {
+    const getOrderIdByAlias = (alias: string): BigNumberish => {
         const id = orderAlias2Id[alias];
         expect(id, `Order alias "${alias}" not found`).gt(0);
         return id;
     };
+    const wrapArray = <T>(value: T | T[]): T[] => {
+        return Array.isArray(value) ? value : [value];
+    };
+
     for (let i = 0; i < scenarios.length; i++) {
         const step = scenarios[i];
         if (step.run) {
             await step.run();
         } else if (step.updateAllowance) {
-            const updates = Array.isArray(step.updateAllowance) ? step.updateAllowance : [step.updateAllowance];
+            const updates = wrapArray(step.updateAllowance);
             for (let j = 0; j < updates.length; j++) {
                 await load.approveSpending(updates[j].token, updates[j].from, updates[j].amount);
             }
@@ -281,14 +288,7 @@ export async function executeTestScenarios(load: Awaited<ReturnType<typeof setUp
                 expect(!!step.submitOrder.expectBalanceChange?.length).false;
                 expect(!!step.submitOrder.expectClosed?.length).false;
 
-                if (step.submitOrder.expectReverted.message) {
-                    await expect(tx).to.be.revertedWith(step.submitOrder.expectReverted.message);
-                } else if (step.submitOrder.expectReverted.errorName) {
-                    await expect(tx).to.be
-                        .revertedWithCustomError(load.OrderBookContract, step.submitOrder.expectReverted.errorName);
-                } else {
-                    await expect(tx).to.be.reverted;
-                }
+                await expectReverted(step.submitOrder.expectReverted, load.OrderBookContract, tx);
             } else {
                 let orderId = 0n;
                 const alias = step.submitOrder.alias ?? `step_${i}`;
@@ -302,6 +302,7 @@ export async function executeTestScenarios(load: Awaited<ReturnType<typeof setUp
                         step.submitOrder.side, _validUtil
                     );
                 expect(orderId).gt(0);
+                expect(orderAlias2Id[alias] == null).true;
                 orderAlias2Id[alias] = orderId;
 
                 const {expectFills, expectNoFill, expectBalanceChange, expectClosed} = step.submitOrder;
@@ -333,31 +334,25 @@ export async function executeTestScenarios(load: Awaited<ReturnType<typeof setUp
                             expectTokenChangeBalance(tx, it.token, it.accounts, it.changes)));
                 }
                 if (expectClosed) {
-                    await Promise.all(expectClosed.map(it =>
-                        expect(tx).to.emit(load.OrderBookContract, "OrderClosedEvent")
-                            .withArgs(
-                                it.alias ? getOrderIdByAlias(it.alias) : anyValue,
-                                it.owner ?? anyValue,
-                                it.receiveAmt ?? anyValue,
-                                it.executeAmt ?? anyValue,
-                                it.feeAmt ?? anyValue,
-                                it.pairId ?? anyValue,
-                                it.side ?? anyValue,
-                                it.reason ?? anyValue,
-                            )
-                    ));
+                    await expectClosedEvent(expectClosed, load.OrderBookContract, tx, getOrderIdByAlias);
                 }
             }
+        } else if (step.cancelOrder) {
+            const ids = wrapArray(step.cancelOrder.alias).map(getOrderIdByAlias);
+            const tx = (load.OrderBookContract).connect(step.cancelOrder.signer)
+                .cancelOrder(ids);
+            if (step.cancelOrder.expectReverted) {
+                expect(!!step.cancelOrder.expectClosed?.length).false;
+                await expectReverted(step.cancelOrder.expectReverted, load.OrderBookContract, tx);
+            } else if (step.cancelOrder.expectClosed) {
+                await expectClosedEvent(step.cancelOrder.expectClosed, load.OrderBookContract, tx, getOrderIdByAlias);
+            }
         } else if (step.expectOrder) {
-            await expectOrder(
-                step.expectOrder,
-                await load.OrderBookContract.getOrder(getOrderIdByAlias(step.expectOrder.alias))
-            );
-        } else if (step.expectOrders) {
-            for (let j = 0; j < step.expectOrders.length; j++) {
+            const expectOrders = wrapArray(step.expectOrder);
+            for (let j = 0; j < expectOrders.length; j++) {
                 await expectOrder(
-                    step.expectOrders[j],
-                    await load.OrderBookContract.getOrder(getOrderIdByAlias(step.expectOrders[j].alias))
+                    expectOrders[j],
+                    await (load.OrderBookContract as OrderBook).getOrder(getOrderIdByAlias(expectOrders[j].alias))
                 );
             }
         }
@@ -384,4 +379,35 @@ async function expectOrder(params: ExpectOrder, order: OrderBook.OrderStructOutp
     checkOptional(order.pairId, params.pairId, `order[${order.id}].pairId`);
     checkOptional(order.side, params.side, `order[${order.id}].side`);
     checkOptional(order.validUntil, params.validUntil ? await params.validUntil : undefined, `order[${order.id}].validUtil`);
+}
+
+async function expectReverted(params: ExpectReverted, contract: { interface: any }, tx: Promise<TransactionResponse>) {
+    if (params.message) {
+        await expect(tx).to.be.revertedWith(params.message);
+    } else if (params.errorName) {
+        await expect(tx).to.be.revertedWithCustomError(contract, params.errorName);
+    } else {
+        await expect(tx).to.be.reverted;
+    }
+}
+
+async function expectClosedEvent(
+    param: ExpectCloseEvent[],
+    contract: OrderBook,
+    tx: Promise<TransactionResponse>,
+    getOrderIdByAlias: (alias: string) => BigNumberish,
+) {
+    await Promise.all(param.map(it =>
+        expect(tx).to.emit(contract, "OrderClosedEvent")
+            .withArgs(
+                it.alias ? getOrderIdByAlias(it.alias) : anyValue,
+                it.owner ?? anyValue,
+                it.receiveAmt ?? anyValue,
+                it.executeAmt ?? anyValue,
+                it.feeAmt ?? anyValue,
+                it.pairId ?? anyValue,
+                it.side ?? anyValue,
+                it.reason ?? anyValue,
+            )
+    ));
 }

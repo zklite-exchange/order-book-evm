@@ -228,13 +228,8 @@ contract OrderBook is ReentrancyGuard {
             require(Math.mulDiv(amount, price, 10 ** pair.priceDecimals) >= pair.minExecuteQuote, "Amount too small");
         }
 
-        // cancel old order, reset spending amount
-        if (orderIdsToCancel.length > 0) {
-            for (uint i = 0; i < orderIdsToCancel.length;) {
-                cancelOrderInternal(activeOrders[orderIdsToCancel[i]]);
-                unchecked {i++;}
-            }
-        }
+        // cancel old orders if specify
+        cancelOrderInternal(orderIdsToCancel);
 
         ERC20 spendingToken = side == OrderSide.BUY ? pair.quoteToken : pair.baseToken;
         uint spendingAmount = userSpendingAmount[msg.sender][spendingToken] + amount;
@@ -526,20 +521,20 @@ contract OrderBook is ReentrancyGuard {
         return userSpendingAmount[user][token];
     }
 
-    function cancelOrder(uint orderId) public nonReentrant {
-        require(orderId > 0, "Invalid order ID");
-        Order storage order = activeOrders[orderId];
-        cancelOrderInternal(order);
+    function cancelOrder(uint[] calldata orderIds) public nonReentrant {
+        cancelOrderInternal(orderIds);
     }
 
-    function cancelOrderInternal(Order storage order) private {
-        if (order.id == 0) {
-            // order not active
-            return;
+    // reentrancy safe
+    function cancelOrderInternal(uint[] calldata orderIds) private {
+        for (uint i = 0; i < orderIds.length;) {
+            Order storage order = activeOrders[orderIds[i]];
+            if (order.id > 0) {
+                require(order.owner == msg.sender, "Unauthorized");
+                closeOrderUnsafe(order, OrderCloseReason.CANCELLED);
+            }
+            unchecked {i++;}
         }
-
-        require(order.owner == msg.sender, "Unauthorized");
-        closeOrderUnsafe(order, OrderCloseReason.CANCELLED);
     }
 
     function closeOrderUnsafe(Order storage order, OrderCloseReason reason) private {
