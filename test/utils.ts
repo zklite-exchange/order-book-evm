@@ -8,7 +8,6 @@ import {
     Addressable,
     AddressLike,
     BigNumberish,
-    type ContractTransactionResponse,
     ethers,
     TransactionResponse
 } from "ethers";
@@ -124,35 +123,35 @@ async function _setUpTest() {
     };
 }
 
-export const submitOrderHelper = async (
-    contract: OrderBook, owner: ethers.Signer, pairId: BigNumberish,
-    side: OrderSide, price: BigNumberish, amount: BigNumberish,
-    validUtil?: BigNumberish | Promise<BigNumberish>,
-    tif?: TimeInForce,
-    orderIdsToFill?: BigNumberish[],
-    extraExpect?: (tx: Promise<ContractTransactionResponse>) => Promise<void>
-): Promise<bigint> => {
-    // validUtil = validUtil ?? moment().add(1, 'day').unix();
-    const _validUtil = validUtil
-        ? await validUtil
-        : moment.unix(await currentBlockTime()).add(1, 'day').unix();
-    let orderId = 0n;
-    const tx = contract.connect(owner)
-        .submitOrder(side, price, amount, pairId, _validUtil, tif ?? TimeInForce.GTC, orderIdsToFill ?? []);
-    await expect(tx).to.emit(contract, "NewOrderEvent")
-        .withArgs(
-            (_orderId: bigint) => {
-                orderId = _orderId;
-                return true;
-            },
-            owner, price, amount, pairId, side, _validUtil
-        );
-    if (extraExpect) {
-        await extraExpect(tx);
-    }
-    expect(orderId).gt(0);
-    return orderId;
-};
+// export const submitOrderHelper = async (
+//     contract: OrderBook, owner: ethers.Signer, pairId: BigNumberish,
+//     side: OrderSide, price: BigNumberish, amount: BigNumberish,
+//     validUtil?: BigNumberish | Promise<BigNumberish>,
+//     tif?: TimeInForce,
+//     orderIdsToFill?: BigNumberish[],
+//     extraExpect?: (tx: Promise<ContractTransactionResponse>) => Promise<void>
+// ): Promise<bigint> => {
+//     // validUtil = validUtil ?? moment().add(1, 'day').unix();
+//     const _validUtil = validUtil
+//         ? await validUtil
+//         : moment.unix(await currentBlockTime()).add(1, 'day').unix();
+//     let orderId = 0n;
+//     const tx = contract.connect(owner)
+//         .submitOrder(side, price, amount, pairId, _validUtil, tif ?? TimeInForce.GTC, orderIdsToFill ?? []);
+//     await expect(tx).to.emit(contract, "NewOrderEvent")
+//         .withArgs(
+//             (_orderId: bigint) => {
+//                 orderId = _orderId;
+//                 return true;
+//             },
+//             owner, price, amount, pairId, side, _validUtil
+//         );
+//     if (extraExpect) {
+//         await extraExpect(tx);
+//     }
+//     expect(orderId).gt(0);
+//     return orderId;
+// };
 
 export function getZkTestProvider(): Provider {
     return new Provider((hre.network.config as any).url);
@@ -211,6 +210,7 @@ type ActionSubmitOrder = {
     validUtil?: BigNumberish | Promise<BigNumberish>;
     tif?: TimeInForce;
     orderAliasesToFill?: string[];
+    orderAliasesToCancel?: string[];
     expectReverted?: {
         errorName?: string,
         message?: string,
@@ -223,6 +223,7 @@ type ActionSubmitOrder = {
 
 type ExpectOrder = {
     alias: string,
+    closed?: true,
     owner?: string;
     price?: BigNumberish;
     amount?: BigNumberish;
@@ -262,10 +263,11 @@ type ExpectBalanceChange = {
     token: ERC20, accounts: AddressLike[], changes: BN[]
 };
 
-type TestScenarios = {
+export type TestScenarios = {
     updateAllowance?: ActionUpdateAllowance | ActionUpdateAllowance[];
     submitOrder?: ActionSubmitOrder;
     expectOrder?: ExpectOrder;
+    expectOrders?: ExpectOrder[];
     run?: () => Promise<void>
 };
 
@@ -299,6 +301,7 @@ export async function executeTestScenarios(load: Awaited<ReturnType<typeof setUp
                     step.submitOrder.amount, pairId,
                     _validUtil,
                     tif,
+                    step.submitOrder.orderAliasesToCancel?.map(getOrderIdByAlias) ?? [],
                     step.submitOrder.orderAliasesToFill?.map(getOrderIdByAlias) ?? []
                 );
 
@@ -375,10 +378,17 @@ export async function executeTestScenarios(load: Awaited<ReturnType<typeof setUp
                 }
             }
         } else if (step.expectOrder) {
-            return expectOrder(
+            await expectOrder(
                 step.expectOrder,
                 await load.OrderBookContract.getOrder(getOrderIdByAlias(step.expectOrder.alias))
             );
+        } else if (step.expectOrders) {
+            for (let j = 0; j < step.expectOrders.length; j++) {
+                await expectOrder(
+                    step.expectOrders[j],
+                    await load.OrderBookContract.getOrder(getOrderIdByAlias(step.expectOrders[j].alias))
+                );
+            }
         }
     }
 }
@@ -388,6 +398,12 @@ const checkOptional = (value: any, _expect?: any, message?: string) => {
 };
 
 async function expectOrder(params: ExpectOrder, order: OrderBook.OrderStructOutput) {
+    if (params.closed) {
+        expect(order.id).eq(0);
+        expect(order.price).eq(0);
+        expect(order.amount).eq(0);
+        return;
+    }
     checkOptional(order.owner, params.owner, `order[${order.id}].owner`);
     checkOptional(order.price, params.price, `order[${order.id}].price`);
     checkOptional(order.amount, params.amount, `order[${order.id}].amount`);

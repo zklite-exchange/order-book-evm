@@ -211,6 +211,7 @@ contract OrderBook is ReentrancyGuard {
         uint16 pairId,
         uint32 validUntil,
         TimeInForce tif,
+        uint[] calldata orderIdsToCancel,
         uint[] calldata orderIdsToFill
     ) public nonReentrant returns (uint orderId) {
         require(validUntil > block.timestamp, "Invalid validUntil");
@@ -225,6 +226,14 @@ contract OrderBook is ReentrancyGuard {
             require(amount >= pair.minExecuteQuote, "Amount too small");
         } else {
             require(Math.mulDiv(amount, price, 10 ** pair.priceDecimals) >= pair.minExecuteQuote, "Amount too small");
+        }
+
+        // cancel old order, reset spending amount
+        if (orderIdsToCancel.length > 0) {
+            for (uint i = 0; i < orderIdsToCancel.length;) {
+                cancelOrderInternal(activeOrders[orderIdsToCancel[i]]);
+                unchecked {i++;}
+            }
         }
 
         ERC20 spendingToken = side == OrderSide.BUY ? pair.quoteToken : pair.baseToken;
@@ -520,9 +529,16 @@ contract OrderBook is ReentrancyGuard {
     function cancelOrder(uint orderId) public nonReentrant {
         require(orderId > 0, "Invalid order ID");
         Order storage order = activeOrders[orderId];
-        require(order.id > 0, "Order not found");
-        require(order.owner == msg.sender, "Unauthorized");
+        cancelOrderInternal(order);
+    }
 
+    function cancelOrderInternal(Order storage order) private {
+        if (order.id == 0) {
+            // order not active
+            return;
+        }
+
+        require(order.owner == msg.sender, "Unauthorized");
         closeOrderUnsafe(order, OrderCloseReason.CANCELLED);
     }
 
