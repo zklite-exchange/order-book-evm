@@ -15,6 +15,7 @@ import {
 import {Provider} from "zksync-ethers";
 import {loadFixture, time} from "@nomicfoundation/hardhat-network-helpers";
 import chaiBN from 'chai-bignumber';
+import {anyValue} from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 
 BigNumber.config({EXPONENTIAL_AT: 1e+9});
 chai.use(chaiBN());
@@ -73,7 +74,9 @@ async function _setUpTest() {
     const ethDecimalPow = `1e${Number(await WETH.decimals())}`;
     const usdcDecimalPow = `1e${Number(await USDC.decimals())}`;
     await WETH.transfer(bob.address, new BN(1000).times(ethDecimalPow).dp(0).toString());
+    await WETH.transfer(alice.address, new BN(1000).times(ethDecimalPow).dp(0).toString());
     await USDC.transfer(bob.address, new BN(150000).times(usdcDecimalPow).dp(0).toString());
+    await USDC.transfer(alice.address, new BN(150000).times(usdcDecimalPow).dp(0).toString());
 
     //deploy contract
     const takerFeeBps = 0.1 / 0.01; // 0.1% = 10 basis points
@@ -103,6 +106,7 @@ async function _setUpTest() {
     expect(defaultPairId).gt(0);
 
     const priceDecimalPow = `1e${priceDecimals}`;
+    const uintMax = new BN('2').pow(256).minus(1).toString();
     return {
         alice, bob, admin, WETH, USDC, wethAddress, usdcAddress,
         OrderBookContract, defaultPairId,
@@ -114,8 +118,9 @@ async function _setUpTest() {
             .div(ethDecimalPow).toString(),
         expireAfter: async (amount: DurationInputArg1, unit: DurationInputArg2) =>
             moment.unix(await currentBlockTime()).add(amount, unit).unix(),
-        approveSpending: async (token: ERC20, owner: ethers.Signer, amount: BigNumberish) =>
-            token.connect(owner).approve(await OrderBookContract.getAddress(), amount)
+        approveSpending: async (token: ERC20, owner: ethers.Signer, amount: BigNumberish | 'max') =>
+            token.connect(owner).approve(await OrderBookContract.getAddress(), amount == 'max' ? uintMax : amount),
+        uintMax
     };
 }
 
@@ -193,4 +198,203 @@ export async function expectTokenChangeBalance(
     } else {
         await expect(tx).changeTokenBalances(token, accounts, changes.map(it => it.toString()));
     }
+}
+
+type ActionUpdateAllowance = { from: ethers.Signer, token: ERC20, amount: 'max' | BigNumberish };
+type ActionSubmitOrder = {
+    alias?: string;
+    owner?: ethers.Signer;
+    pairId?: BigNumberish;
+    side: OrderSide;
+    price: BigNumberish,
+    amount: BigNumberish;
+    validUtil?: BigNumberish | Promise<BigNumberish>;
+    tif?: TimeInForce;
+    orderAliasesToFill?: string[];
+    expectReverted?: {
+        errorName?: string,
+        message?: string,
+    }
+    expectFills?: ExpectFill[];
+    expectNoFill?: boolean;
+    expectBalanceChange?: ExpectBalanceChange[];
+    expectClosed?: ExpectCloseEvent[];
+};
+
+type ExpectOrder = {
+    alias: string,
+    owner?: string;
+    price?: BigNumberish;
+    amount?: BigNumberish;
+    unfilledAmt?: BigNumberish;
+    receivedAmt?: BigNumberish;
+    feeAmt?: BigNumberish;
+    pairId?: BigNumberish;
+    side?: OrderSide;
+    validUntil?: BigNumberish | Promise<BigNumberish>;
+};
+
+type ExpectFill = {
+    makerOrderAlias?: string,
+    takerOrderAlias?: string,
+    maker?: string,
+    taker?: string,
+    executedQuote?: BigNumberish,
+    executedBase?: BigNumberish,
+    feeTaker?: BigNumberish,
+    feeMaker?: BigNumberish,
+    pairId?: BigNumberish,
+    takerSide?: OrderSide,
+};
+
+type ExpectCloseEvent = {
+    alias?: string,
+    owner?: string;
+    receiveAmt?: BigNumberish;
+    executeAmt?: BigNumberish;
+    feeAmt?: BigNumberish;
+    pairId?: BigNumberish;
+    side?: OrderSide;
+    reason?: OrderCloseReason;
+};
+
+type ExpectBalanceChange = {
+    token: ERC20, accounts: AddressLike[], changes: BN[]
+};
+
+type TestScenarios = {
+    updateAllowance?: ActionUpdateAllowance | ActionUpdateAllowance[];
+    submitOrder?: ActionSubmitOrder;
+    expectOrder?: ExpectOrder;
+    run?: () => Promise<void>
+};
+
+export async function executeTestScenarios(load: Awaited<ReturnType<typeof setUpTest>>, scenarios: TestScenarios[]) {
+    const orderAlias2Id: any = {};
+    const getOrderIdByAlias = (alias: string) => {
+        const id = orderAlias2Id[alias];
+        expect(id, `Order alias "${alias}" not found`).gt(0);
+        return id;
+    };
+    for (let i = 0; i < scenarios.length; i++) {
+        const step = scenarios[i];
+        if (step.run) {
+            await step.run();
+        } else if (step.updateAllowance) {
+            const updates = Array.isArray(step.updateAllowance) ? step.updateAllowance : [step.updateAllowance];
+            for (let j = 0; j < updates.length; j++) {
+                await load.approveSpending(updates[j].token, updates[j].from, updates[j].amount);
+            }
+        } else if (step.submitOrder) {
+            const orderOwner = step.submitOrder.owner ?? load.alice;
+            const pairId = step.submitOrder.pairId ?? load.defaultPairId;
+            const tif = step.submitOrder.tif ?? TimeInForce.GTC;
+            const _validUtil = step.submitOrder.validUtil
+                ? await (step.submitOrder.validUtil)
+                : moment.unix(await currentBlockTime()).add(1, 'day').unix();
+            const tx = (load.OrderBookContract).connect(orderOwner)
+                .submitOrder(
+                    step.submitOrder.side,
+                    step.submitOrder.price,
+                    step.submitOrder.amount, pairId,
+                    _validUtil,
+                    tif,
+                    step.submitOrder.orderAliasesToFill?.map(getOrderIdByAlias) ?? []
+                );
+
+            if (step.submitOrder.expectReverted) {
+                expect(!!step.submitOrder.expectFills?.length).false;
+                expect(!!step.submitOrder.expectBalanceChange?.length).false;
+                expect(!!step.submitOrder.expectClosed?.length).false;
+
+                if (step.submitOrder.expectReverted.message) {
+                    await expect(tx).to.be.revertedWith(step.submitOrder.expectReverted.message);
+                } else if (step.submitOrder.expectReverted.errorName) {
+                    await expect(tx).to.be
+                        .revertedWithCustomError(load.OrderBookContract, step.submitOrder.expectReverted.errorName);
+                } else {
+                    await expect(tx).to.be.reverted;
+                }
+            } else {
+                let orderId = 0n;
+                const alias = step.submitOrder.alias ?? `step_${i}`;
+                await expect(tx).to.emit(load.OrderBookContract, "NewOrderEvent")
+                    .withArgs(
+                        (_orderId: bigint) => {
+                            orderId = _orderId;
+                            return true;
+                        },
+                        orderOwner, step.submitOrder.price, step.submitOrder.amount, pairId,
+                        step.submitOrder.side, _validUtil
+                    );
+                expect(orderId).gt(0);
+                orderAlias2Id[alias] = orderId;
+
+                const {expectFills, expectNoFill, expectBalanceChange, expectClosed} = step.submitOrder;
+                if (expectNoFill) {
+                    expect(!!expectFills?.length).false;
+                    await expect(tx).to.not.emit(load.OrderBookContract, "FillEvent");
+                } else if (expectFills) {
+                    const promises = expectFills.map(expectFill =>
+                        expect(tx).to.emit(load.OrderBookContract, "FillEvent")
+                            .withArgs(
+                                expectFill.makerOrderAlias ? getOrderIdByAlias(expectFill.makerOrderAlias) : anyValue,
+                                expectFill.takerOrderAlias ? getOrderIdByAlias(expectFill.takerOrderAlias) : anyValue,
+                                expectFill.maker ?? anyValue,
+                                expectFill.taker ?? anyValue,
+                                expectFill.executedQuote ?? anyValue,
+                                expectFill.executedBase ?? anyValue,
+                                expectFill.feeTaker ?? anyValue,
+                                expectFill.feeMaker ?? anyValue,
+                                expectFill.pairId ?? anyValue,
+                                expectFill.takerSide ?? anyValue,
+                            )
+                    );
+                    await Promise.all(promises);
+                }
+
+                if (expectBalanceChange) {
+                    await Promise.all(
+                        expectBalanceChange.map(it =>
+                            expectTokenChangeBalance(tx, it.token, it.accounts, it.changes)));
+                }
+                if (expectClosed) {
+                    await Promise.all(expectClosed.map(it =>
+                        expect(tx).to.emit(load.OrderBookContract, "OrderClosedEvent")
+                            .withArgs(
+                                it.alias ? getOrderIdByAlias(it.alias) : anyValue,
+                                it.owner ?? anyValue,
+                                it.receiveAmt ?? anyValue,
+                                it.executeAmt ?? anyValue,
+                                it.feeAmt ?? anyValue,
+                                it.pairId ?? anyValue,
+                                it.side ?? anyValue,
+                                it.reason ?? anyValue,
+                            )
+                    ));
+                }
+            }
+        } else if (step.expectOrder) {
+            return expectOrder(
+                step.expectOrder,
+                await load.OrderBookContract.getOrder(getOrderIdByAlias(step.expectOrder.alias))
+            );
+        }
+    }
+}
+
+const checkOptional = (value: any, _expect?: any, message?: string) => {
+    if (_expect != null) expect(value, message).eq(_expect);
+};
+
+async function expectOrder(params: ExpectOrder, order: OrderBook.OrderStructOutput) {
+    checkOptional(order.owner, params.owner, `order[${order.id}].owner`);
+    checkOptional(order.price, params.price, `order[${order.id}].price`);
+    checkOptional(order.amount, params.amount, `order[${order.id}].amount`);
+    checkOptional(order.unfilledAmt, params.unfilledAmt, `order[${order.id}].unfilledAmount`);
+    checkOptional(order.receivedAmt, params.receivedAmt, `order[${order.id}].receivedAmount`);
+    checkOptional(order.feeAmt, params.feeAmt, `order[${order.id}].feeAmt`);
+    checkOptional(order.pairId, params.pairId, `order[${order.id}].pairId`);
+    checkOptional(order.side, params.side, `order[${order.id}].side`);
+    checkOptional(order.validUntil, params.validUntil ? await params.validUntil : undefined, `order[${order.id}].validUtil`);
 }

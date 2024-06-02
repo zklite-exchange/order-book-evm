@@ -1,45 +1,65 @@
-import {time} from "@nomicfoundation/hardhat-network-helpers";
-import {currentBlockTime, getZkTestProvider, OrderCloseReason, OrderSide, setUpTest, submitOrderHelper} from "./utils";
-import {expect} from "chai";
+import {
+    currentBlockTime,
+    executeTestScenarios,
+    getZkTestProvider,
+    OrderCloseReason,
+    OrderSide,
+    setUpTest
+} from "./utils";
 import hre from "hardhat";
+import {time} from "@nomicfoundation/hardhat-network-helpers";
 
-describe("Blackbox testing OrderBook contract", async () => {
+describe("OrderBook - Blackbox testing expiry", async () => {
     it("Submit expired order should fail", async () => {
         const load = await setUpTest();
-        const amount = load.fmtUsdc(10);
-        await load.approveSpending(load.USDC, load.bob, amount);
-        await expect(
-            load.OrderBookContract.connect(load.bob)
-                .submitOrder(OrderSide.BUY, load.fmtPrice(3000), amount, await currentBlockTime() - 1, [])
-        ).to.be.revertedWith("Invalid validUntil");
+        await executeTestScenarios(load, [{
+            updateAllowance: {from: load.bob, token: load.USDC, amount: 'max'}
+        }, {
+            submitOrder: {
+                owner: load.bob, side: OrderSide.BUY, amount: 1, price: 1,
+                validUtil: await currentBlockTime() - 1,
+                expectReverted: {
+                    message: "Invalid validUntil"
+                }
+            }
+        }]);
     });
 
     it("Expired order shouldn't be filled", async () => {
         const load = await setUpTest();
-        const amount = load.fmtUsdc(100);
-        await load.approveSpending(load.USDC, load.bob, amount);
-
-        const makerOrderId = await submitOrderHelper(
-            load.OrderBookContract, load.bob, OrderSide.BUY,
-            load.fmtPrice(3000), amount, load.expireAfter(1, 'day')
-        );
-        const nextTimestamp = await load.expireAfter(2, 'day');
-        if (hre.network.zksync) {
-            await getZkTestProvider()
-                .send("evm_setNextBlockTimestamp", [nextTimestamp]);
-        } else {
-            await time.increaseTo(nextTimestamp);
-        }
-
-        const takerAmount = load.fmtWeth(1);
-        await load.approveSpending(load.WETH, load.alice, takerAmount);
-        await submitOrderHelper(
-            load.OrderBookContract, load.alice, OrderSide.SELL,
-            load.fmtPrice(3000), takerAmount, load.expireAfter(7, 'day'),
-            [makerOrderId], async (tx) => {
-                await expect(tx).to.emit(load.OrderBookContract, "OrderClosedEvent")
-                    .withArgs(makerOrderId, load.bob.address, 0, 0, 0, OrderSide.BUY, OrderCloseReason.EXPIRED);
+        await executeTestScenarios(load, [{
+            updateAllowance: [
+                {from: load.bob, token: load.USDC, amount: 'max'},
+                {from: load.alice, token: load.WETH, amount: 'max'}
+            ]
+        }, {
+            submitOrder: {
+                alias: 'order1', owner: load.bob, side: OrderSide.BUY,
+                amount: load.fmtUsdc(100), price: load.fmtPrice(1),
+                validUtil: load.expireAfter(1, 'day')
             }
-        );
+        }, {
+            run: async () => {
+                const nextTimestamp = await load.expireAfter(2, 'day');
+                if (hre.network.zksync) {
+                    await getZkTestProvider()
+                        .send("evm_setNextBlockTimestamp", [nextTimestamp]);
+                } else {
+                    await time.increaseTo(nextTimestamp);
+                }
+
+                // order1 should be expired now
+            }
+        }, {
+            submitOrder: {
+                owner: load.alice, side: OrderSide.SELL,
+                amount: load.fmtWeth(100), price: load.fmtPrice(1),
+                orderAliasesToFill: ['order1'],
+                expectNoFill: true,
+                expectClosed: [
+                    {alias: 'order1', executeAmt: 0, receiveAmt: 0, feeAmt: 0, reason: OrderCloseReason.EXPIRED}
+                ]
+            }
+        }]);
     });
 });
