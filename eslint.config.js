@@ -9,6 +9,7 @@ module.exports = tsEslint.config(
     {
         rules: {
             "semi": "off",
+            "@typescript-eslint/member-delimiter-style": "error",
             "@typescript-eslint/semi": "error",
             "@typescript-eslint/no-explicit-any": "off"
         },

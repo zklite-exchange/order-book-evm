@@ -9,6 +9,7 @@ import {Provider} from "zksync-ethers";
 import {loadFixture, time} from "@nomicfoundation/hardhat-network-helpers";
 import chaiBN from 'chai-bignumber';
 import {anyValue} from "@nomicfoundation/hardhat-chai-matchers/withArgs";
+import RoundingMode = BigNumber.RoundingMode;
 
 BigNumber.config({EXPONENTIAL_AT: 1e+9});
 chai.use(chaiBN());
@@ -19,10 +20,10 @@ export enum OrderSide {
 }
 
 export enum OrderCloseReason {
-    FILLED = 0, CANCELLED, EXPIRED, OUT_OF_BALANCE, OUT_OF_ALLOWANCE
+    FILLED = 0, CANCELLED, EXPIRED, OUT_OF_BALANCE, OUT_OF_ALLOWANCE, EXPIRED_IOK
 }
 
-enum TimeInForce {
+export enum TimeInForce {
     GTC = 0, IOK, FOK
 }
 
@@ -49,6 +50,13 @@ export async function deployFakeTokens(owner: any) {
 export async function setUpTest() {
     if (hre.network.zksync) return _setUpTest();
     return loadFixture(_setUpTest);
+}
+
+type BNTypes = BigNumberish | BN.Value;
+
+function toBN(value: BNTypes): BN {
+    if (BN.isBigNumber(value)) return value as BN;
+    return new BN(value.toString());
 }
 
 async function _setUpTest() {
@@ -105,16 +113,23 @@ async function _setUpTest() {
         alice, bob, admin, WETH, USDC, wethAddress, usdcAddress,
         OrderBookContract, defaultPairId,
         takerFeeBps, makerFeeBps, minExecuteQuote, minQuoteChargeFee,
-        usdcDecimalPow, ethDecimalPow, priceDecimalPow,
-        fmtUsdc: (value: BN.Value) => new BN(value).times(usdcDecimalPow).toString(),
-        fmtWeth: (value: BN.Value) => new BN(value).times(ethDecimalPow).toString(),
+        usdcDecimalPow, ethDecimalPow, priceDecimalPow, uintMax,
+        fmtUsdc: (value: BNTypes) => toBN(value).times(usdcDecimalPow).dp(0).toString(),
+        fmtWeth: (value: BNTypes) => toBN(value).times(ethDecimalPow).dp(0).toString(),
         fmtPrice: (price: BN.Value) => new BN(price).times(usdcDecimalPow).times(priceDecimalPow)
-            .div(ethDecimalPow).toString(),
+            .div(ethDecimalPow).dp(0).toString(),
         expireAfter: async (amount: DurationInputArg1, unit: DurationInputArg2) =>
             moment.unix(await currentBlockTime()).add(amount, unit).unix(),
         approveSpending: async (token: ERC20, owner: ethers.Signer, amount: BigNumberish | 'max') =>
             token.connect(owner).approve(await OrderBookContract.getAddress(), amount == 'max' ? uintMax : amount),
-        uintMax
+
+        mulPrice: (value: BNTypes, price: BNTypes, rounding?: RoundingMode) =>
+            toBN(value).times(toBN(price)).div(priceDecimalPow).dp(0, rounding).toString(),
+        divPrice: (value: BNTypes, price: BNTypes, rounding?: RoundingMode) =>
+            toBN(value).times(priceDecimalPow).div(toBN(price)).dp(0, rounding).toString(),
+
+        calcFee: (executeAmt: BigNumberish, feeBps: BigNumberish) =>
+            new BN(executeAmt.toString()).times(feeBps.toString()).div(10000).dp(0, BN.ROUND_DOWN).toString(),
     };
 }
 
@@ -130,7 +145,7 @@ export async function currentBlockTime(): Promise<number> {
 
 export async function expectTokenChangeBalance(
     tx: TransactionResponse | Promise<TransactionResponse>,
-    token: ERC20, accounts: AddressLike[], changes: BN[]
+    token: ERC20, accounts: AddressLike[], changes: BN.Value[]
 ) {
     if (hre.network.zksync) {
         const receipt = await (await tx).wait();
@@ -164,13 +179,13 @@ export async function expectTokenChangeBalance(
     }
 }
 
-type ActionUpdateAllowance = { from: ethers.Signer, token: ERC20, amount: 'max' | BigNumberish };
+type ActionUpdateAllowance = { from: ethers.Signer; token: ERC20; amount: 'max' | BigNumberish };
 type ActionSubmitOrder = {
     alias?: string;
     owner?: ethers.Signer;
     pairId?: BigNumberish;
     side: OrderSide;
-    price: BigNumberish,
+    price: BigNumberish;
     amount: BigNumberish;
     validUtil?: BigNumberish | Promise<BigNumberish>;
     tif?: TimeInForce;
@@ -185,19 +200,19 @@ type ActionSubmitOrder = {
 
 type ActionCancelOrder = {
     alias: string | string[];
-    signer: ethers.Signer,
+    signer: ethers.Signer;
     expectReverted?: ExpectReverted;
     expectClosed?: ExpectCloseEvent[];
 };
 
 type ExpectReverted = {
-    errorName?: string,
-    message?: string,
+    errorName?: string;
+    message?: string;
 };
 
 type ExpectOrder = {
-    alias: string,
-    closed?: true,
+    alias: string;
+    closed?: true;
     owner?: AddressLike;
     price?: BigNumberish;
     amount?: BigNumberish;
@@ -210,21 +225,21 @@ type ExpectOrder = {
 };
 
 type ExpectFill = {
-    makerOrderAlias?: string,
-    takerOrderAlias?: string,
-    maker?: string,
-    taker?: string,
-    executedQuote?: BigNumberish,
-    executedBase?: BigNumberish,
-    feeTaker?: BigNumberish,
-    feeMaker?: BigNumberish,
-    pairId?: BigNumberish,
-    takerSide?: OrderSide,
+    makerOrderAlias?: string;
+    takerOrderAlias?: string;
+    maker?: AddressLike;
+    taker?: AddressLike;
+    executedQuote?: BigNumberish;
+    executedBase?: BigNumberish;
+    feeTaker?: BigNumberish;
+    feeMaker?: BigNumberish;
+    pairId?: BigNumberish;
+    takerSide?: OrderSide;
 };
 
 type ExpectCloseEvent = {
-    alias?: string,
-    owner?: string;
+    alias?: string;
+    owner?: AddressLike;
     receiveAmt?: BigNumberish;
     executeAmt?: BigNumberish;
     feeAmt?: BigNumberish;
@@ -234,7 +249,7 @@ type ExpectCloseEvent = {
 };
 
 type ExpectBalanceChange = {
-    token: ERC20, accounts: AddressLike[], changes: BN[]
+    token: ERC20; accounts: AddressLike[]; changes: BN.Value[];
 };
 
 export type TestScenarios = {
@@ -242,10 +257,12 @@ export type TestScenarios = {
     submitOrder?: ActionSubmitOrder;
     cancelOrder?: ActionCancelOrder;
     expectOrder?: ExpectOrder | ExpectOrder[];
-    run?: () => Promise<void>
+    run?: () => Promise<void>;
 };
 
-export async function executeTestScenarios(load: Awaited<ReturnType<typeof setUpTest>>, scenarios: TestScenarios[]) {
+type TestSetUpData = Awaited<ReturnType<typeof setUpTest>>;
+
+export async function executeTestScenarios(load: TestSetUpData, scenarios: TestScenarios[]) {
     const orderAlias2Id: any = {};
     const getOrderIdByAlias = (alias: string): BigNumberish => {
         const id = orderAlias2Id[alias];
@@ -410,4 +427,39 @@ async function expectClosedEvent(
                 it.reason ?? anyValue,
             )
     ));
+}
+
+type TestMatrix = {
+    maker: ethers.Signer;
+    taker: ethers.Signer;
+    makerSide: OrderSide;
+    takerSide: OrderSide;
+    makerSellToken: ERC20;
+    takerSellToken: ERC20;
+    makerBuyToken: ERC20;
+    takerBuyToken: ERC20;
+    makerBalance: BN;
+    takerBalance: BN;
+};
+
+export function orderMatrix(name: string, fn: (load: TestSetUpData, matrix: TestMatrix) => Promise<void>) {
+    [OrderSide.BUY, OrderSide.SELL].forEach(function (makerSide) {
+        it(`${makerSide} - ${name}`, async () => {
+            const load = await setUpTest();
+            const makerSellToken = makerSide == OrderSide.BUY ? load.USDC : load.WETH;
+            const takerSellToken = makerSide == OrderSide.BUY ? load.WETH : load.USDC;
+            await fn(load, {
+                maker: load.bob,
+                taker: load.alice,
+                makerSide: makerSide,
+                takerSide: makerSide == OrderSide.BUY ? OrderSide.SELL : OrderSide.BUY,
+                makerSellToken: makerSellToken,
+                takerSellToken: takerSellToken,
+                makerBuyToken: takerSellToken,
+                takerBuyToken: makerSellToken,
+                makerBalance: new BN((await makerSellToken.balanceOf(load.bob)).toString()),
+                takerBalance: new BN((await takerSellToken.balanceOf(load.alice)).toString()),
+            });
+        });
+    });
 }
