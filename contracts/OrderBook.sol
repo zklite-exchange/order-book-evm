@@ -303,42 +303,16 @@ contract OrderBook is ReentrancyGuard {
                 return false;
             }
 
-            uint makerUnfilledQuote = Math.mulDiv(makerUnfilledBase, makerOrder.price, priceDecimalPow);
 
             uint takerUnfilledQuote = takerOrder.unfilledAmt;
+            (uint executeQuote, uint executeBase) = calcExecuteAmount(
+                takerUnfilledQuote, makerUnfilledBase, pair.minExecuteQuote,
+                makerOrder.price, priceDecimalPow
+            );
 
-            uint executeQuote;
-            uint executeBase;
-            if (makerUnfilledQuote == takerUnfilledQuote) {
-                executeQuote = makerUnfilledQuote;
-                executeBase = makerUnfilledBase;
-            } else {
-                if (makerUnfilledQuote > takerUnfilledQuote) {
-                    unchecked {
-                        if (makerUnfilledQuote - takerUnfilledQuote >= pair.minExecuteQuote) {
-                            executeQuote = takerUnfilledQuote;
-                        } else if (takerUnfilledQuote >= pair.minExecuteQuote * 2) {
-                            executeQuote = takerUnfilledQuote - pair.minExecuteQuote;
-                        } else {
-                            // can't enforce the logic that unfilled amount of both maker and taker must >= pair.minExecuteQuote
-                            return false;
-                        }
-                    }
-                    executeBase = Math.mulDiv(executeQuote, priceDecimalPow, makerOrder.price);
-                } else {
-                    unchecked {
-                        if (takerUnfilledQuote - makerUnfilledQuote >= pair.minExecuteQuote) {
-                            executeQuote = makerUnfilledQuote;
-                            executeBase = makerUnfilledBase;
-                        } else if (makerUnfilledQuote >= pair.minExecuteQuote * 2) {
-                            executeQuote = makerUnfilledQuote - pair.minExecuteQuote;
-                            executeBase = Math.mulDiv(executeQuote, priceDecimalPow, makerOrder.price);
-                        } else {
-                            // can't enforce the logic that unfilled amount of both maker and taker must >= pair.minExecuteQuote
-                            return false;
-                        }
-                    }
-                }
+            if (executeQuote == 0) {
+                assert(executeBase == 0);
+                return false;
             }
             uint quoteFee;
             uint baseFee;
@@ -407,41 +381,17 @@ contract OrderBook is ReentrancyGuard {
             }
 
             uint takerUnfilledBase = takerOrder.unfilledAmt;
-            uint takerUnfilledQuote = Math.mulDiv(takerUnfilledBase, makerOrder.price, priceDecimalPow);
 
-            uint executeQuote;
-            uint executeBase;
-            if (makerUnfilledQuote == takerUnfilledQuote) {
-                executeQuote = takerUnfilledQuote;
-                executeBase = takerUnfilledBase;
-            } else {
-                if (makerUnfilledQuote > takerUnfilledQuote) {
-                    unchecked {
-                        if (makerUnfilledQuote - takerUnfilledQuote >= pair.minExecuteQuote) {
-                            executeQuote = takerUnfilledQuote;
-                            executeBase = takerUnfilledBase;
-                        } else if (takerUnfilledQuote >= pair.minExecuteQuote * 2) {
-                            executeQuote = takerUnfilledQuote - pair.minExecuteQuote;
-                            executeBase = Math.mulDiv(executeQuote, priceDecimalPow, makerOrder.price);
-                        } else {
-                            // can't enforce the logic that unfilled amount of both maker and taker must >= pair.minExecuteQuote
-                            return false;
-                        }
-                    }
-                } else {
-                    unchecked {
-                        if (takerUnfilledQuote - makerUnfilledQuote >= pair.minExecuteQuote) {
-                            executeQuote = makerUnfilledQuote;
-                        } else if (makerUnfilledQuote >= pair.minExecuteQuote * 2) {
-                            executeQuote = makerUnfilledQuote - pair.minExecuteQuote;
-                        } else {
-                            // can't enforce the logic that unfilled amount of both maker and taker must >= pair.minExecuteQuote
-                            return false;
-                        }
-                    }
-                    executeBase = Math.mulDiv(executeQuote, priceDecimalPow, makerOrder.price);
-                }
+            (uint executeQuote, uint executeBase) = calcExecuteAmount(
+                makerUnfilledQuote, takerUnfilledBase, pair.minExecuteQuote,
+                makerOrder.price, priceDecimalPow
+            );
+
+            if (executeQuote == 0) {
+                assert(executeBase == 0);
+                return false;
             }
+
             uint quoteFee;
             uint baseFee;
             if (executeQuote >= pair.minQuoteChargeFee) {
@@ -495,6 +445,50 @@ contract OrderBook is ReentrancyGuard {
 
             return takerOrder.unfilledAmt == 0;
         }
+    }
+
+    /**
+    @dev In case of partial fill, the remaining amount must have notional value in quote > minExecuteQuote.
+    This logic helps avoiding ghost orders in order book (order with a very low amount that no one care).
+    */
+    function calcExecuteAmount(
+        uint unfilledQuote,
+        uint unfilledBase,
+        uint minExecuteQuote,
+        uint price,
+        uint priceDecimalPow
+    ) private pure returns (uint, uint) {
+        uint executeQuote = Math.mulDiv(unfilledBase, price, priceDecimalPow);
+        uint executeBase;
+        if (executeQuote == unfilledQuote) {
+            executeBase = unfilledBase;
+        } else if (executeQuote > unfilledQuote) {
+            unchecked {
+                if (executeQuote - unfilledQuote >= minExecuteQuote) {
+                    executeQuote = unfilledQuote;
+                } else if (unfilledQuote >= minExecuteQuote * 2) {
+                    executeQuote = unfilledQuote - minExecuteQuote;
+                } else {
+                    // couldn't fill, because remaining amount will be < minExecuteQuote
+                    return (0, 0);
+                }
+            }
+            executeBase = Math.mulDiv(executeQuote, priceDecimalPow, price);
+        } else {
+            unchecked {
+                if (unfilledQuote - executeQuote >= minExecuteQuote) {
+                    executeBase = unfilledBase;
+                } else if (executeQuote >= minExecuteQuote * 2) {
+                    executeQuote = executeQuote - minExecuteQuote;
+                    executeBase = Math.mulDiv(executeQuote, priceDecimalPow, price);
+                } else {
+                    return (0, 0);
+                }
+            }
+        }
+
+        assert(executeBase > 0 && executeBase <= unfilledBase);
+        return (executeQuote, executeBase);
     }
 
     function getActivePairIds() public view returns (uint[] memory) {
