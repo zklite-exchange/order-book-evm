@@ -23,6 +23,7 @@ describe("OrderBook - Blackbox testing admin config", async () => {
             );
         expect(pairId).gt(0);
 
+        expect(await load.OrderBookContract.getActivePairIds()).contain(pairId);
         const pair = await load.OrderBookContract.getPair(pairId);
         expect(pair.id).eq(pairId);
         expect(pair.baseToken).eq(base);

@@ -222,6 +222,7 @@ type ExpectOrder = {
     pairId?: BigNumberish;
     side?: OrderSide;
     validUntil?: BigNumberish | Promise<BigNumberish>;
+    checkActiveOrderIds?: boolean;
 };
 
 type ExpectFill = {
@@ -260,7 +261,9 @@ export type TestScenarios = {
     run?: () => Promise<void>;
 };
 
-type TestSetUpData = Awaited<ReturnType<typeof setUpTest>>;
+type TestSetUpData = Awaited<ReturnType<typeof setUpTest>> & {
+    OrderBookContract: OrderBook;
+};
 
 export async function executeTestScenarios(load: TestSetUpData, scenarios: TestScenarios[]) {
     const orderAlias2Id: any = {};
@@ -363,13 +366,16 @@ export async function executeTestScenarios(load: TestSetUpData, scenarios: TestS
                 await expectReverted(step.cancelOrder.expectReverted, load.OrderBookContract, tx);
             } else if (step.cancelOrder.expectClosed) {
                 await expectClosedEvent(step.cancelOrder.expectClosed, load.OrderBookContract, tx, getOrderIdByAlias);
+            } else {
+                await expect(tx).to.not.reverted;
             }
         } else if (step.expectOrder) {
             const expectOrders = wrapArray(step.expectOrder);
             for (let j = 0; j < expectOrders.length; j++) {
                 await expectOrder(
+                    load,
+                    await load.OrderBookContract.getOrder(getOrderIdByAlias(expectOrders[j].alias)),
                     expectOrders[j],
-                    await (load.OrderBookContract as OrderBook).getOrder(getOrderIdByAlias(expectOrders[j].alias))
                 );
             }
         }
@@ -380,13 +386,14 @@ const checkOptional = (value: any, _expect?: any, message?: string) => {
     if (_expect != null) expect(value, message).eq(_expect);
 };
 
-async function expectOrder(params: ExpectOrder, order: OrderBook.OrderStructOutput) {
+async function expectOrder(load: TestSetUpData, order: OrderBook.OrderStructOutput, params: ExpectOrder) {
     if (params.closed) {
         expect(order.id).eq(0);
         expect(order.price).eq(0);
         expect(order.amount).eq(0);
         return;
     }
+    expect(order.id).gt(0);
     checkOptional(order.owner, params.owner, `order[${order.id}].owner`);
     checkOptional(order.price, params.price, `order[${order.id}].price`);
     checkOptional(order.amount, params.amount, `order[${order.id}].amount`);
@@ -396,6 +403,10 @@ async function expectOrder(params: ExpectOrder, order: OrderBook.OrderStructOutp
     checkOptional(order.pairId, params.pairId, `order[${order.id}].pairId`);
     checkOptional(order.side, params.side, `order[${order.id}].side`);
     checkOptional(order.validUntil, params.validUntil ? await params.validUntil : undefined, `order[${order.id}].validUtil`);
+    if (params.checkActiveOrderIds) {
+        expect(await load.OrderBookContract.getActiveOrderIds()).contain(order.id);
+        expect(await (load.OrderBookContract as OrderBook).getActiveOrderIdsOf(order.owner)).contain(order.id);
+    }
 }
 
 async function expectReverted(params: ExpectReverted, contract: { interface: any }, tx: Promise<TransactionResponse>) {

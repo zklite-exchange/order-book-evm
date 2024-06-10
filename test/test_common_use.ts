@@ -22,6 +22,7 @@ describe("OrderBook - Blackbox testing common cases", async function () {
             expectOrder: {
                 alias: 'order1', owner: matrix.maker, side: matrix.makerSide, price: price,
                 amount: matrix.makerBalance.toString(),
+                checkActiveOrderIds: true
             }
         }, {
             run: async () => {
