@@ -183,5 +183,51 @@ describe("OrderBook - Blackbox testing common cases", async function () {
             },
         }]);
     });
+
+    orderMatrix("Partial fill both taker and maker order", async (load, m) => {
+        const price = load.fmtPrice(1);
+        await load.OrderBookContract.connect(load.admin).setMinQuote(load.defaultPairId, load.fmtUsdc(10), 0);
+
+        const makerAmount = m.makerSide == OrderSide.BUY ? load.fmtUsdc : load.fmtWeth;
+        const takerAmount = m.makerSide == OrderSide.BUY ? load.fmtWeth : load.fmtUsdc;
+        await executeTestScenarios(load, [{
+            updateAllowance: [
+                {token: m.makerSellToken, from: m.maker, amount: 'max'},
+                {token: m.takerSellToken, from: m.taker, amount: 'max'},
+            ]
+        }, {
+            submitOrder: {
+                alias: 'maker1', owner: m.maker, side: m.makerSide, amount: makerAmount(15), price
+            }
+        }, {
+            submitOrder: {
+                alias: 'taker1', owner: m.taker, side: m.takerSide, amount: takerAmount(18), price,
+                orderAliasesToFill: ['maker1'],
+                expectNoFill: true,
+                // can't fill because remaining qty will be < minExecuteQuote
+            }
+        }, {
+            submitOrder: {
+                alias: 'maker2', owner: m.maker, side: m.makerSide, amount: makerAmount(22), price
+            }
+        }, {
+            submitOrder: {
+                // maker 22, taker 21 -> fill 11 >= minExecuteQuote
+                // maker remain 11 unfilled, taker remain 10 unfilled (both >= minExecuteQuote)
+                alias: 'taker2', owner: m.taker, side: m.takerSide, amount: takerAmount(21), price,
+                orderAliasesToFill: ['maker2'],
+                expectFills: [{
+                    executedQuote: load.fmtUsdc(11),
+                    executedBase: load.fmtWeth(11)
+                }]
+            }
+        }, {
+            expectOrder: [{
+                alias: 'maker2', unfilledAmt: makerAmount(11)
+            }, {
+                alias: 'taker2', unfilledAmt: takerAmount(10)
+            }]
+        }]);
+    });
 });
 

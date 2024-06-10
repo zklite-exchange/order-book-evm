@@ -228,7 +228,9 @@ contract OrderBook is ReentrancyGuard {
         }
 
         // cancel old orders if specify
-        cancelOrderInternal(orderIdsToCancel);
+        if (orderIdsToCancel.length > 0) {
+            cancelOrderInternal(orderIdsToCancel);
+        }
 
         ERC20 spendingToken = side == OrderSide.BUY ? pair.quoteToken : pair.baseToken;
         uint spendingAmount = userSpendingAmount[msg.sender][spendingToken] + amount;

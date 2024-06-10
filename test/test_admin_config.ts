@@ -80,16 +80,20 @@ describe("OrderBook - Blackbox testing admin config", async () => {
 
     it("Test change pair active status", async () => {
         const load = await setUpTest();
-        await expect(load.OrderBookContract.connect(load.admin).setPairActive(load.defaultPairId, false))
-            .to.be.emit(load.OrderBookContract, "NewPairConfigEvent")
-            .withArgs(
-                load.wethAddress, load.usdcAddress, load.minExecuteQuote, load.minQuoteChargeFee,
-                load.defaultPairId, load.takerFeeBps, load.makerFeeBps,
-                (decimals: bigint) => new BN(load.priceDecimalPow).eq((10n**decimals).toString()),
-                false
-            );
-        const pairConf = await load.OrderBookContract.getPair(load.defaultPairId);
-        expect(pairConf.active).eq(false);
+        const arr = [false, true];
+        for (let i = 0; i < arr.length; i++) {
+            const status = arr[i];
+            await expect(load.OrderBookContract.connect(load.admin).setPairActive(load.defaultPairId, status))
+                .to.be.emit(load.OrderBookContract, "NewPairConfigEvent")
+                .withArgs(
+                    load.wethAddress, load.usdcAddress, load.minExecuteQuote, load.minQuoteChargeFee,
+                    load.defaultPairId, load.takerFeeBps, load.makerFeeBps,
+                    (decimals: bigint) => new BN(load.priceDecimalPow).eq((10n**decimals).toString()),
+                    status
+                );
+            const pairConf = await load.OrderBookContract.getPair(load.defaultPairId);
+            expect(pairConf.active).eq(status);
+        }
     });
 
     it("Test set admin", async () => {
