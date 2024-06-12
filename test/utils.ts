@@ -89,7 +89,7 @@ async function _setUpTest() {
     const OrderBookContract = await deployContract<OrderBook>(admin, "OrderBook", orderBookConstructorArgs);
     const wethAddress = await WETH.getAddress();
     const usdcAddress = await USDC.getAddress();
-    let defaultPairId = 0n;
+    let defaultPairId = 0;
     await expect(
         OrderBookContract.connect(admin)
             .createPair(
@@ -100,7 +100,7 @@ async function _setUpTest() {
         .withArgs(
             wethAddress, usdcAddress, minExecuteQuote, minQuoteChargeFee,
             (id: bigint) => {
-                defaultPairId = id;
+                defaultPairId = Number(id);
                 return true;
             },
             takerFeeBps, makerFeeBps, priceDecimals, true
