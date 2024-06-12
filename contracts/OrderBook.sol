@@ -212,7 +212,21 @@ contract OrderBook is ReentrancyGuard {
         TimeInForce tif,
         uint[] calldata orderIdsToCancel,
         uint[] calldata orderIdsToFill
-    ) public nonReentrant returns (uint orderId) {
+    ) public nonReentrant returns (uint) {
+        return __submitOrder(msg.sender, side, price, amount, pairId, validUntil, tif, orderIdsToCancel, orderIdsToFill);
+    }
+
+    function __submitOrder(
+        address owner,
+        OrderSide side,
+        uint price,
+        uint amount,
+        uint16 pairId,
+        uint32 validUntil,
+        TimeInForce tif,
+        uint[] calldata orderIdsToCancel,
+        uint[] calldata orderIdsToFill
+    ) private returns (uint orderId) {
         require(validUntil > block.timestamp, "Invalid validUntil");
         require(price > 0, "Invalid price");
         require(amount > 0, "Invalid amount");
@@ -229,19 +243,19 @@ contract OrderBook is ReentrancyGuard {
 
         // cancel old orders if specify
         if (orderIdsToCancel.length > 0) {
-            cancelOrderInternal(orderIdsToCancel);
+            cancelOrderInternal(owner, orderIdsToCancel);
         }
 
         ERC20 spendingToken = side == OrderSide.BUY ? pair.quoteToken : pair.baseToken;
-        uint spendingAmount = userSpendingAmount[msg.sender][spendingToken] + amount;
-        require(spendingToken.balanceOf(msg.sender) >= spendingAmount, "Not enough balance");
-        require(spendingToken.allowance(msg.sender, address(this)) >= spendingAmount, "Exceed allowance");
+        uint spendingAmount = userSpendingAmount[owner][spendingToken] + amount;
+        require(spendingToken.balanceOf(owner) >= spendingAmount, "Not enough balance");
+        require(spendingToken.allowance(owner, address(this)) >= spendingAmount, "Exceed allowance");
 
         orderId = ++orderCount;
 
-        Order memory order = Order(orderId, msg.sender, price, amount, amount, 0, 0, pairId, side, validUntil);
+        Order memory order = Order(orderId, owner, price, amount, amount, 0, 0, pairId, side, validUntil);
         emit NewOrderEvent(
-            orderId, msg.sender,
+            orderId, owner,
             price, amount,
             pairId, side, validUntil
         );
@@ -251,7 +265,7 @@ contract OrderBook is ReentrancyGuard {
                 tryFillOrder(pair, order, activeOrders[orderIdsToFill[i]]);
                 if (order.unfilledAmt == 0) {
                     emit OrderClosedEvent(
-                        orderId, msg.sender, order.receivedAmt, amount, order.feeAmt,
+                        orderId, owner, order.receivedAmt, amount, order.feeAmt,
                         pairId, side, OrderCloseReason.FILLED
                     );
 
@@ -265,11 +279,11 @@ contract OrderBook is ReentrancyGuard {
         if (tif == TimeInForce.GTC) {
             activeOrders[orderId] = order;
             EnumerableSet.add(activeOrderIds, orderId);
-            EnumerableSet.add(userActiveOrderIds[msg.sender], orderId);
-            userSpendingAmount[msg.sender][spendingToken] += order.unfilledAmt;
+            EnumerableSet.add(userActiveOrderIds[owner], orderId);
+            userSpendingAmount[owner][spendingToken] += order.unfilledAmt;
         } else if (tif == TimeInForce.IOK) {
             emit OrderClosedEvent(
-                orderId, msg.sender, order.receivedAmt, amount - order.unfilledAmt, order.feeAmt,
+                orderId, owner, order.receivedAmt, amount - order.unfilledAmt, order.feeAmt,
                 pairId, side, OrderCloseReason.EXPIRED_IOK
             );
         } else {
@@ -517,15 +531,15 @@ contract OrderBook is ReentrancyGuard {
     }
 
     function cancelOrder(uint[] calldata orderIds) public nonReentrant {
-        cancelOrderInternal(orderIds);
+        cancelOrderInternal(msg.sender, orderIds);
     }
 
     // reentrancy safe
-    function cancelOrderInternal(uint[] calldata orderIds) private {
+    function cancelOrderInternal(address caller, uint[] calldata orderIds) private {
         for (uint i = 0; i < orderIds.length;) {
             Order storage order = activeOrders[orderIds[i]];
             if (order.id > 0) {
-                require(order.owner == msg.sender, "Unauthorized");
+                require(order.owner == caller, "Unauthorized");
                 closeOrderUnsafe(order, OrderCloseReason.CANCELLED);
             }
             unchecked {i++;}
