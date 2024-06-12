@@ -3,10 +3,15 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import "@openzeppelin/contracts/utils/structs/BitMaps.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
+import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-contract OrderBook is ReentrancyGuard {
+contract OrderBook is EIP712, ReentrancyGuard {
+    bytes32 private constant SUBMIT_ORDER_TYPE_HASH =
+    keccak256("SubmitOrder(uint8 side,uint256 price,uint256 amount,uint16 pairId,uint32 validUntil,uint8 tif,uint256 networkFee,uint256 nonce,uint256[] orderIdsToCancel,uint256[] orderIdsToFill)");
 
     enum OrderSide {
         BUY, SELL
@@ -102,10 +107,11 @@ contract OrderBook is ReentrancyGuard {
     EnumerableSet.UintSet internal activePairIds;
     mapping(address => EnumerableSet.UintSet) internal userActiveOrderIds;
     mapping(address => mapping(ERC20 => uint)) internal userSpendingAmount;
+    mapping(address => BitMaps.BitMap) internal userNonce;
 
     address internal admin;
 
-    constructor(address _admin) {
+    constructor(address _admin) EIP712("zkLite Order Book", "v1") {
         require(_admin != address(0), "Invalid admin address");
         admin = _admin;
     }
@@ -122,7 +128,7 @@ contract OrderBook is ReentrancyGuard {
         admin = newAdmin;
     }
 
-    function getAdmin() public view returns(address) {
+    function getAdmin() public view returns (address) {
         return admin;
     }
 
@@ -203,6 +209,46 @@ contract OrderBook is ReentrancyGuard {
         }
     }
 
+    function isUserNonceUsed(address user, uint value) public view returns (bool) {
+        return BitMaps.get(userNonce[user], value);
+    }
+
+    function submitOrderOnBehalfOf(
+        address user,
+        OrderSide side,
+        uint price,
+        uint amount,
+        uint16 pairId,
+        uint32 validUntil,
+        TimeInForce tif,
+        uint networkFee,
+        uint nonce,
+        uint[] calldata orderIdsToCancel,
+        uint[] calldata orderIdsToFill,
+        uint8 v, bytes32 r, bytes32 s
+    ) public nonReentrant returns (uint) {
+        require(!isUserNonceUsed(user, nonce), "Nonce is used");
+        BitMaps.set(userNonce[user], nonce);
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                SUBMIT_ORDER_TYPE_HASH,
+                uint8(side), price, amount, pairId,
+                validUntil, uint8(tif), networkFee, nonce,
+                keccak256(abi.encodePacked(orderIdsToCancel)),
+                keccak256(abi.encodePacked(orderIdsToFill))
+            )
+        );
+        bytes32 hash = _hashTypedDataV4(structHash);
+        address signer = ECDSA.recover(hash, v, r, s);
+
+        if (signer != user) {
+            revert("Invalid signature");
+        }
+
+        return __submitOrder(user, side, price, amount, pairId, validUntil, tif, networkFee, orderIdsToCancel, orderIdsToFill);
+    }
+
     function submitOrder(
         OrderSide side,
         uint price,
@@ -213,7 +259,7 @@ contract OrderBook is ReentrancyGuard {
         uint[] calldata orderIdsToCancel,
         uint[] calldata orderIdsToFill
     ) public nonReentrant returns (uint) {
-        return __submitOrder(msg.sender, side, price, amount, pairId, validUntil, tif, orderIdsToCancel, orderIdsToFill);
+        return __submitOrder(msg.sender, side, price, amount, pairId, validUntil, tif, 0, orderIdsToCancel, orderIdsToFill);
     }
 
     function __submitOrder(
@@ -224,6 +270,7 @@ contract OrderBook is ReentrancyGuard {
         uint16 pairId,
         uint32 validUntil,
         TimeInForce tif,
+        uint networkFee,
         uint[] calldata orderIdsToCancel,
         uint[] calldata orderIdsToFill
     ) private returns (uint orderId) {
@@ -247,6 +294,10 @@ contract OrderBook is ReentrancyGuard {
         }
 
         ERC20 spendingToken = side == OrderSide.BUY ? pair.quoteToken : pair.baseToken;
+        if (networkFee > 0) {
+            spendingToken.transferFrom(owner, admin, networkFee);
+        }
+
         uint spendingAmount = userSpendingAmount[owner][spendingToken] + amount;
         require(spendingToken.balanceOf(owner) >= spendingAmount, "Not enough balance");
         require(spendingToken.allowance(owner, address(this)) >= spendingAmount, "Exceed allowance");
