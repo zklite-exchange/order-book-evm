@@ -19,7 +19,7 @@ describe("OrderBook - Blackbox testing EIP712 features", async () => {
         const signature = ethers.Signature.from(await (load.bob as Signer).signTypedData({
             name: "zkLite Order Book",
             version: "v1",
-            chainId: hre.network.config.chainId,
+            chainId: hre.network.config.chainId ?? 260 /*zkSync*/,
             verifyingContract: await load.OrderBookContract.getAddress(),
         }, {
             "SubmitOrder": [
