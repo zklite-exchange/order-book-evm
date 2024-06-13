@@ -4,10 +4,11 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "@openzeppelin/contracts/utils/structs/BitMaps.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
-import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+
+import {ReentrancyGuard} from "./ReentrancyGuard.sol";
+import {EIP712} from "./EIP712.sol";
 
 contract OrderBook is EIP712, ReentrancyGuard {
     bytes32 private constant SUBMIT_ORDER_TYPE_HASH =
