@@ -6,6 +6,8 @@ import "@matterlabs/hardhat-zksync-ethers";
 import "@matterlabs/hardhat-zksync-deploy";
 import "@matterlabs/hardhat-zksync-solc";
 import "@matterlabs/hardhat-zksync-node";
+import '@matterlabs/hardhat-zksync-upgradable';
+import '@openzeppelin/hardhat-upgrades';
 import "solidity-coverage";
 import "hardhat-contract-sizer";
 import "hardhat-gas-reporter";

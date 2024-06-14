@@ -60,6 +60,7 @@ abstract contract EIP712 is IERC5267 {
      *
      * NOTE: These parameters cannot be changed except through a xref:learn::upgrading-smart-contracts.adoc[smart
      * contract upgrade].
+     * @custom:oz-upgrades-unsafe-allow constructor
      */
     constructor(string memory name, string memory version) {
         _name = name.toShortString();

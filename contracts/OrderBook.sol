@@ -6,11 +6,13 @@ import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "@openzeppelin/contracts/utils/structs/BitMaps.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 
-import {ReentrancyGuard} from "./ReentrancyGuard.sol";
+import {ReentrancyGuardUpgradeable} from "./ReentrancyGuard.sol";
 import {EIP712} from "./EIP712.sol";
 
-contract OrderBook is EIP712, ReentrancyGuard {
+/// @custom:security-contact contact@zklite.io
+contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
     bytes32 private constant SUBMIT_ORDER_TYPE_HASH =
     keccak256("SubmitOrder(uint8 side,uint256 price,uint256 amount,uint16 pairId,uint32 validUntil,uint8 tif,uint256 networkFee,uint256 nonce,uint256[] orderIdsToCancel,uint256[] orderIdsToFill)");
 
@@ -99,8 +101,8 @@ contract OrderBook is EIP712, ReentrancyGuard {
         bool active;
     }
 
-    uint internal orderCount = 0;
-    uint internal pairCounts = 0;
+    uint internal orderCount;
+    uint internal pairCounts;
 
     mapping(uint => Order) internal activeOrders;
     EnumerableSet.UintSet internal activeOrderIds;
@@ -112,8 +114,17 @@ contract OrderBook is EIP712, ReentrancyGuard {
 
     address internal admin;
 
-    constructor(address _admin) EIP712("zkLite Order Book", "v1") {
+    /**
+    * @custom:oz-upgrades-unsafe-allow constructor
+    */
+    constructor(string memory name, string memory version) EIP712(name, version) initializer {
+        // name and version will be inlined into smart contract code
+        // so they needn't to init via initializer function (initV1).
+    }
+
+    function initV1(address _admin) public initializer {
         require(_admin != address(0), "Invalid admin address");
+        __ReentrancyGuard_init();
         admin = _admin;
     }
 
@@ -122,6 +133,14 @@ contract OrderBook is EIP712, ReentrancyGuard {
             revert("Unauthorized access");
         }
         _;
+    }
+
+    function getName() public view returns (string memory) {
+        return _EIP712Name();
+    }
+
+    function getVersion() public view returns (string memory) {
+        return _EIP712Version();
     }
 
     function setAdmin(address newAdmin) public onlyAdmin {

@@ -9,6 +9,7 @@ import {Provider} from "zksync-ethers";
 import {loadFixture, time} from "@nomicfoundation/hardhat-network-helpers";
 import chaiBN from 'chai-bignumber';
 import {anyValue} from "@nomicfoundation/hardhat-chai-matchers/withArgs";
+import {DeployProxyOptions} from "@openzeppelin/hardhat-upgrades/dist/utils";
 import RoundingMode = BigNumber.RoundingMode;
 
 BigNumber.config({EXPONENTIAL_AT: 1e+9});
@@ -36,6 +37,25 @@ async function deployContract<T extends ethers.BaseContract>(owner: any, contrac
         return (await hre.deployer.deploy(contractName, args)) as any;
     } else {
         return (await hre.ethers.deployContract(contractName, args, owner)) as any;
+    }
+}
+
+async function deployProxy<T extends ethers.BaseContract>(
+    owner: any, contractName: string,
+    opts?: DeployProxyOptions & {
+        initArgs?: any[];
+    }
+): Promise<T> {
+    if (hre.network.zksync) {
+        const artifact = await hre.deployer.loadArtifact(contractName);
+        const etaGas = await hre.deployer.estimateDeployGas(artifact, opts?.constructorArgs ?? []);
+        console.log(`ETA deploy ${contractName} cost ${etaGas} gas`);
+        return (await hre.zkUpgrades.deployProxy(owner, artifact, opts?.initArgs ?? [], opts)) as any;
+    } else {
+        return (await hre.upgrades.deployProxy(await hre.ethers.getContractFactory(contractName), opts?.initArgs ?? [], {
+            ...opts,
+            initialOwner: owner
+        })) as any;
     }
 }
 
@@ -85,8 +105,13 @@ async function _setUpTest() {
     const priceDecimals = 20;
     const minExecuteQuote = new BN(5).times(usdcDecimalPow).toString(); // 5 USDC
     const minQuoteChargeFee = minExecuteQuote;
-    const orderBookConstructorArgs = [admin.address];
-    const OrderBookContract = await deployContract<OrderBook>(admin, "OrderBook", orderBookConstructorArgs);
+    const OrderBookContract = await deployProxy<OrderBook>(
+        admin, "OrderBook", {
+            initArgs: [admin.address],
+            initializer: "initV1",
+            constructorArgs: ["zkLite Order Book", "v1"]
+        }
+    );
     const wethAddress = await WETH.getAddress();
     const usdcAddress = await USDC.getAddress();
     let defaultPairId = 0;
