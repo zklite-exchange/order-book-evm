@@ -6,13 +6,15 @@ import "@matterlabs/hardhat-zksync-ethers";
 import "@matterlabs/hardhat-zksync-deploy";
 import "@matterlabs/hardhat-zksync-solc";
 import "@matterlabs/hardhat-zksync-node";
-import '@matterlabs/hardhat-zksync-upgradable';
 import '@openzeppelin/hardhat-upgrades';
 import "solidity-coverage";
 import "hardhat-contract-sizer";
 import "hardhat-gas-reporter";
 import dotenv from "dotenv";
 dotenv.config();
+
+
+const TEST_ZKSYNC = process.env.ZKSYNC_NODE === "1";
 
 const config: HardhatUserConfig = {
     solidity: {
@@ -37,7 +39,7 @@ const config: HardhatUserConfig = {
     },
     networks: {
         hardhat: {
-            zksync: process.env.ZKSYNC_NODE === "1",
+            zksync: TEST_ZKSYNC,
         },
         zkSyncSepoliaTestnet: {
             url: "https://sepolia.era.zksync.dev",
