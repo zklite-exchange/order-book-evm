@@ -1,8 +1,9 @@
-import {OrderSide, setUpTest, TimeInForce} from "./utils";
+import {setUpTest} from "./utils";
 import {ethers, Signer} from "ethers";
 import hre from "hardhat";
 import {expect} from "chai";
 import {anyValue} from "@nomicfoundation/hardhat-chai-matchers/withArgs";
+import {OrderSide, TimeInForce} from "../index";
 
 describe("OrderBook - Blackbox testing EIP712 features", async () => {
     it("Test submit order on behalf of user", async () => {

@@ -2,12 +2,11 @@ import {
     currentBlockTime,
     executeTestScenarios,
     getZkTestProvider,
-    OrderCloseReason,
-    OrderSide,
     setUpTest
 } from "./utils";
 import hre from "hardhat";
 import {time} from "@nomicfoundation/hardhat-network-helpers";
+import {OrderCloseReason, OrderSide} from "../index";
 
 describe("OrderBook - Blackbox testing expiry", async () => {
     it("Submit expired order should fail", async () => {

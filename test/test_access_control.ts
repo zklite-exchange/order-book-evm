@@ -1,5 +1,6 @@
-import {executeTestScenarios, OrderSide, setUpTest} from "./utils";
+import {executeTestScenarios, setUpTest} from "./utils";
 import {expect} from "chai";
+import {OrderSide} from "../index";
 
 describe("OrderBook - Blackbox testing access control", async () => {
     it("Only admin can create pair", async () => {

@@ -1,7 +1,8 @@
-import {executeTestScenarios, orderMatrix, OrderSide, setUpTest, TimeInForce} from "./utils";
+import {executeTestScenarios, orderMatrix, setUpTest} from "./utils";
 import {expect} from "chai";
 import {BigNumberish} from "ethers";
 import BN from "bignumber.js";
+import {OrderSide, TimeInForce} from "../index";
 
 
 describe("OrderBook - Blackbox testing misuse cases", async function () {

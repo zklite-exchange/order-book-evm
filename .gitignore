@@ -11,3 +11,5 @@ deployments-zk
 artifacts-zk
 era_test_node.log
 coverage.json
+dist
+*.tgz

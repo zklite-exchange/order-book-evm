@@ -12,22 +12,12 @@ import {anyValue} from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 import RoundingMode = BigNumber.RoundingMode;
 import {DeployProxyOptions, getInitializerData} from "@openzeppelin/hardhat-upgrades/dist/utils";
 import {Manifest} from "@openzeppelin/upgrades-core";
+import {OrderCloseReason, OrderSide, TimeInForce} from "../index";
 
 BigNumber.config({EXPONENTIAL_AT: 1e+9});
 chai.use(chaiBN());
 
-export enum OrderSide {
-    BUY = 0,
-    SELL = 1,
-}
 
-export enum OrderCloseReason {
-    FILLED = 0, CANCELLED, EXPIRED, OUT_OF_BALANCE, OUT_OF_ALLOWANCE, EXPIRED_IOK
-}
-
-export enum TimeInForce {
-    GTC = 0, IOK, FOK
-}
 
 async function deployContract<T extends ethers.BaseContract>(owner: any, contractName: string, args: any[] = []): Promise<T> {
     let contract: T;
@@ -58,6 +48,10 @@ async function deployProxy<T extends ethers.BaseContract>(
         await manifest.addProxy({
             kind: 'transparent',
             address: await proxy.getAddress(),
+            txHash: proxy.deploymentTransaction()?.hash,
+            ...{
+                deployTransaction: proxy.deploymentTransaction(),
+            },
             ...proxy.deploymentTransaction()
         });
         return impl.attach(await proxy.getAddress()) as any;

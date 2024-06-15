@@ -1,4 +1,5 @@
-import {executeTestScenarios, OrderCloseReason, OrderSide, setUpTest} from "./utils";
+import {executeTestScenarios, setUpTest} from "./utils";
+import {OrderCloseReason, OrderSide} from "../index";
 
 describe("OrderBook - Blackbox testing balance/allowance", async () => {
     it("Submit order amount greater than balance/allowance should fail", async () => {
@@ -99,7 +100,7 @@ describe("OrderBook - Blackbox testing balance/allowance", async () => {
                     }]
                 }
             }, {
-                expectOrders: [
+                expectOrder: [
                     {alias: 'makerOrder1', closed: true},
                     {alias: 'makerOrder2', closed: true}
                 ]

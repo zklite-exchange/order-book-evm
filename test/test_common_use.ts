@@ -1,8 +1,9 @@
 import {expect} from "chai";
-import {executeTestScenarios, OrderCloseReason, orderMatrix, OrderSide, TestScenarios, TimeInForce} from "./utils";
+import {executeTestScenarios, orderMatrix, TestScenarios} from "./utils";
 import {BigNumberish} from "ethers";
 import {OrderBook} from "../typechain";
 import BN from "bignumber.js";
+import {OrderCloseReason, OrderSide, TimeInForce} from "../index";
 
 
 describe("OrderBook - Blackbox testing common cases", async function () {
