@@ -8,11 +8,11 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 
-import {ReentrancyGuardUpgradeable} from "./ReentrancyGuard.sol";
 import {EIP712} from "./EIP712.sol";
+import {ReentrancyGuardTransient} from "./ReentrancyGuard.sol";
 
 /// @custom:security-contact contact@zklite.io
-contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
+contract OrderBook is EIP712, Initializable, ReentrancyGuardTransient {
     bytes32 private constant SUBMIT_ORDER_TYPE_HASH =
     keccak256("SubmitOrder(uint8 side,uint256 price,uint256 amount,uint16 pairId,uint32 validUntil,uint8 tif,uint256 networkFee,uint256 nonce,uint256[] orderIdsToCancel,uint256[] orderIdsToFill)");
 
@@ -128,7 +128,6 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
 
     function initV1(address _admin) public initializer {
         require(_admin != address(0), "Invalid admin address");
-        __ReentrancyGuard_init();
         admin = _admin;
     }
 
