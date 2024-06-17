@@ -109,7 +109,7 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
     mapping(uint256 => Pair) internal pairs;
     EnumerableSet.UintSet internal activePairIds;
     mapping(address => EnumerableSet.UintSet) internal userActiveOrderIds;
-    mapping(address => mapping(ERC20 => uint)) internal userSpendingAmount;
+    mapping(address => mapping(ERC20 => uint256)) internal userSpendingAmount;
     mapping(address => BitMaps.BitMap) internal userNonce;
 
     address internal admin;
@@ -243,10 +243,10 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
         TimeInForce tif,
         uint256 networkFee,
         uint256 nonce,
-        uint[] calldata orderIdsToCancel,
-        uint[] calldata orderIdsToFill,
+        uint256[] calldata orderIdsToCancel,
+        uint256[] calldata orderIdsToFill,
         uint8 v, bytes32 r, bytes32 s
-    ) external nonReentrant returns (uint) {
+    ) external nonReentrant returns (uint256) {
         require(!isUserNonceUsed(user, nonce), "Nonce is used");
         BitMaps.set(userNonce[user], nonce);
 
@@ -276,9 +276,9 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
         uint16 pairId,
         uint32 validUntil,
         TimeInForce tif,
-        uint[] calldata orderIdsToCancel,
-        uint[] calldata orderIdsToFill
-    ) external nonReentrant returns (uint) {
+        uint256[] calldata orderIdsToCancel,
+        uint256[] calldata orderIdsToFill
+    ) external nonReentrant returns (uint256) {
         return __submitOrder(msg.sender, side, price, amount, pairId, validUntil, tif, 0, orderIdsToCancel, orderIdsToFill);
     }
 
@@ -291,8 +291,8 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
         uint32 validUntil,
         TimeInForce tif,
         uint256 networkFee,
-        uint[] calldata orderIdsToCancel,
-        uint[] calldata orderIdsToFill
+        uint256[] calldata orderIdsToCancel,
+        uint256[] calldata orderIdsToFill
     ) private returns (uint256 orderId) {
         require(validUntil > block.timestamp, "Invalid validUntil");
         require(price > 0, "Invalid price");
@@ -543,7 +543,7 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
         uint256 minExecuteQuote,
         uint256 price,
         uint256 priceDecimalPow
-    ) private pure returns (uint, uint) {
+    ) private pure returns (uint256, uint256) {
         uint256 executeQuote = Math.mulDiv(unfilledBase, price, priceDecimalPow);
         uint256 executeBase;
         if (executeQuote == unfilledQuote) {
@@ -577,7 +577,7 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
         return (executeQuote, executeBase);
     }
 
-    function getActivePairIds() public view returns (uint[] memory) {
+    function getActivePairIds() public view returns (uint256[] memory) {
         return EnumerableSet.values(activePairIds);
     }
 
@@ -585,11 +585,11 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
         return pairs[pairId];
     }
 
-    function getActiveOrderIds() public view returns (uint[] memory) {
+    function getActiveOrderIds() public view returns (uint256[] memory) {
         return EnumerableSet.values(activeOrderIds);
     }
 
-    function getActiveOrderIdsOf(address who) public view returns (uint[] memory) {
+    function getActiveOrderIdsOf(address who) public view returns (uint256[] memory) {
         return EnumerableSet.values(userActiveOrderIds[who]);
     }
 
@@ -597,16 +597,16 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
         return activeOrders[orderId];
     }
 
-    function getSpendingAmount(address user, ERC20 token) public view returns (uint) {
+    function getSpendingAmount(address user, ERC20 token) public view returns (uint256) {
         return userSpendingAmount[user][token];
     }
 
-    function cancelOrder(uint[] calldata orderIds) external nonReentrant {
+    function cancelOrder(uint256[] calldata orderIds) external nonReentrant {
         cancelOrderInternal(msg.sender, orderIds);
     }
 
     // reentrancy safe
-    function cancelOrderInternal(address caller, uint[] calldata orderIds) private {
+    function cancelOrderInternal(address caller, uint256[] calldata orderIds) private {
         for (uint256 i; i < orderIds.length;) {
             Order storage order = activeOrders[orderIds[i]];
             if (order.id > 0) {
