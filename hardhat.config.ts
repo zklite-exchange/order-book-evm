@@ -29,7 +29,7 @@ const config: HardhatUserConfig = {
         },
     },
     zksolc: {
-        version: "1.4.1", // Uses latest available in https://github.com/matter-labs/zksolc-bin/
+        version: "1.5.0", // Uses latest available in https://github.com/matter-labs/zksolc-bin/
         settings: {
             optimizer: {
                 enabled: true,
