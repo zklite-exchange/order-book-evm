@@ -3,16 +3,20 @@ import BN, {BigNumber} from "bignumber.js";
 import chai, {assert, expect} from "chai";
 import {DurationInputArg1, DurationInputArg2} from "moment";
 import moment from "moment/moment";
-import {ERC20, OrderBook} from "../typechain";
-import {Addressable, AddressLike, BigNumberish, ethers, TransactionResponse} from "ethers";
+import {ERC20, OrderBook, ProxyAdmin__factory} from "../typechain";
+import {Addressable, AddressLike, BaseContract, BigNumberish, Contract, ethers, TransactionResponse} from "ethers";
 import {Provider} from "zksync-ethers";
 import {loadFixture, time} from "@nomicfoundation/hardhat-network-helpers";
 import chaiBN from 'chai-bignumber';
 import {anyValue} from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 import RoundingMode = BigNumber.RoundingMode;
-import {DeployProxyOptions, getInitializerData} from "@openzeppelin/hardhat-upgrades/dist/utils";
+import {
+    DeployProxyOptions,
+    getInitializerData, UpgradeProxyOptions
+} from "@openzeppelin/hardhat-upgrades/dist/utils";
 import {Manifest} from "@openzeppelin/upgrades-core";
 import {OrderCloseReason, OrderSide, TimeInForce} from "../index";
+import {getAdminAddress} from "@openzeppelin/upgrades-core/dist/eip-1967";
 
 BigNumber.config({EXPONENTIAL_AT: 1e+9});
 chai.use(chaiBN());
@@ -61,6 +65,25 @@ async function deployProxy<T extends ethers.BaseContract>(
             initialOwner: owner
         })) as any;
     }
+}
+
+export async function upgradeProxy<T extends ethers.BaseContract>(
+    admin: any, newImpl: string,
+    proxy: ethers.BaseContract,
+    opts: UpgradeProxyOptions
+): Promise<T> {
+    if (hre.network.zksync) {
+        const impl = await deployContract(admin, newImpl, opts.constructorArgs);
+        const fn = typeof opts.call == "string" ? opts.call : opts.call?.fn;
+        const initArgs = typeof opts.call == "string" ? [] : opts.call?.args ?? [];
+        const data = fn ? getInitializerData(impl.interface, initArgs, fn) : '0x';
+        const proxyAddress = await proxy.getAddress();
+        const adminContractAddress = await getAdminAddress(hre.network.provider, proxyAddress);
+        await ProxyAdmin__factory.connect(adminContractAddress,  admin)
+            .upgradeAndCall(proxyAddress, await impl.getAddress(), data);
+        return impl.attach(proxyAddress) as any;
+    }
+    return await hre.upgrades.upgradeProxy(proxy, await hre.ethers.getContractFactory(newImpl, admin), opts) as any;
 }
 
 export async function deployFakeTokens(owner: any) {
