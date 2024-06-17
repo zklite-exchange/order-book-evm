@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity 0.8.25;
 
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-import "@openzeppelin/contracts/utils/structs/BitMaps.sol";
-import "@openzeppelin/contracts/utils/math/Math.sol";
-import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {BitMaps} from "@openzeppelin/contracts/utils/structs/BitMaps.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 
 import {ReentrancyGuardUpgradeable} from "./ReentrancyGuard.sol";
 import {EIP712} from "./EIP712.sol";
@@ -29,8 +29,8 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
     event NewPairConfigEvent (
         ERC20 indexed baseToken,
         ERC20 indexed quoteToken,
-        uint minExecuteQuote,
-        uint minQuoteChargeFee,
+        uint256 minExecuteQuote,
+        uint256 minQuoteChargeFee,
         uint16 indexed id,
         uint16 takerFeeBps,
         uint16 makerFeeBps,
@@ -39,24 +39,24 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
     );
 
     event NewOrderEvent (
-        uint indexed orderId,
+        uint256 indexed orderId,
         address indexed owner,
-        uint price,
-        uint amount,
+        uint256 price,
+        uint256 amount,
         uint16 indexed pairId,
         OrderSide side,
         uint40 validUntil
     );
 
     event FillEvent (
-        uint indexed makerOrderId,
-        uint indexed takerOrderId,
+        uint256 indexed makerOrderId,
+        uint256 indexed takerOrderId,
         address maker,
         address taker,
-        uint executedQuote,
-        uint executedBase,
-        uint feeTaker,
-        uint feeMaker,
+        uint256 executedQuote,
+        uint256 executedBase,
+        uint256 feeTaker,
+        uint256 feeMaker,
         uint16 indexed pairId,
         OrderSide takerSide
     );
@@ -66,24 +66,24 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
     }
 
     event OrderClosedEvent (
-        uint indexed orderId,
+        uint256 indexed orderId,
         address indexed owner,
-        uint receivedAmt,
-        uint executedAmt,
-        uint feeAmt,
+        uint256 receivedAmt,
+        uint256 executedAmt,
+        uint256 feeAmt,
         uint16 indexed pairId,
         OrderSide side,
         OrderCloseReason reason
     );
 
     struct Order {
-        uint id;
+        uint256 id;
         address owner;
-        uint price;
-        uint amount;
-        uint unfilledAmt;
-        uint receivedAmt; // receivedAmt included fee, actual amount received = receivedAmt - feeAmt
-        uint feeAmt;
+        uint256 price;
+        uint256 amount;
+        uint256 unfilledAmt;
+        uint256 receivedAmt; // receivedAmt included fee, actual amount received = receivedAmt - feeAmt
+        uint256 feeAmt;
         uint16 pairId;
         OrderSide side;
         uint40 validUntil;
@@ -92,8 +92,8 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
     struct Pair {
         ERC20 baseToken; // immutable
         ERC20 quoteToken; // immutable
-        uint minExecuteQuote;
-        uint minQuoteChargeFee;
+        uint256 minExecuteQuote;
+        uint256 minQuoteChargeFee;
         uint16 id; // immutable
         uint16 takerFeeBps;
         uint16 makerFeeBps;
@@ -101,12 +101,12 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
         bool active;
     }
 
-    uint internal orderCount;
-    uint internal pairCounts;
+    uint256 internal orderCount;
+    uint256 internal pairCounts;
 
-    mapping(uint => Order) internal activeOrders;
+    mapping(uint256 => Order) internal activeOrders;
     EnumerableSet.UintSet internal activeOrderIds;
-    mapping(uint => Pair) internal pairs;
+    mapping(uint256 => Pair) internal pairs;
     EnumerableSet.UintSet internal activePairIds;
     mapping(address => EnumerableSet.UintSet) internal userActiveOrderIds;
     mapping(address => mapping(ERC20 => uint)) internal userSpendingAmount;
@@ -135,20 +135,20 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
         _;
     }
 
-    function getName() public view returns (string memory) {
+    function getName() external view returns (string memory) {
         return _EIP712Name();
     }
 
-    function getVersion() public view returns (string memory) {
+    function getVersion() external view returns (string memory) {
         return _EIP712Version();
     }
 
-    function setAdmin(address newAdmin) public onlyAdmin {
+    function setAdmin(address newAdmin) external onlyAdmin {
         require(newAdmin != address(0), "Invalid admin address");
         admin = newAdmin;
     }
 
-    function getAdmin() public view returns (address) {
+    function getAdmin() external view returns (address) {
         return admin;
     }
 
@@ -156,11 +156,11 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
         ERC20 baseToken,
         ERC20 quoteToken,
         uint8 priceDecimals,
-        uint minExecuteQuote,
-        uint minQuoteChargeFee,
+        uint256 minExecuteQuote,
+        uint256 minQuoteChargeFee,
         uint16 takerFeeBps,
         uint16 makerFeeBps
-    ) public onlyAdmin returns (uint16 pairId) {
+    ) external onlyAdmin returns (uint16 pairId) {
         require(takerFeeBps < 1000); // < 10%, avoid accidentally set high fee
         require(makerFeeBps < 1000); // < 10%, avoid accidentally set high fee
         require(
@@ -182,7 +182,7 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
         );
     }
 
-    function setMinQuote(uint16 pairId, uint minExecuteQuote, uint minQuoteChargeFee) public onlyAdmin {
+    function setMinQuote(uint16 pairId, uint256 minExecuteQuote, uint256 minQuoteChargeFee) external onlyAdmin {
         Pair storage pair = pairs[pairId];
         require(pair.id > 0, "Invalid pairId");
         pair.minExecuteQuote = minExecuteQuote;
@@ -194,7 +194,7 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
         );
     }
 
-    function setFee(uint16 pairId, uint8 takerFeeBps, uint8 makerFeeBps) public onlyAdmin {
+    function setFee(uint16 pairId, uint8 takerFeeBps, uint8 makerFeeBps) external onlyAdmin {
         require(takerFeeBps < 1000); // < 10%, avoid accidentally set high fee
         require(makerFeeBps < 1000); // < 10%, avoid accidentally set high fee
 
@@ -210,7 +210,7 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
         );
     }
 
-    function setPairActive(uint16 pairId, bool active) public onlyAdmin {
+    function setPairActive(uint16 pairId, bool active) external onlyAdmin {
         Pair storage pair = pairs[pairId];
         require(pair.id > 0, "Invalid pairId");
         if (active != pair.active) {
@@ -229,24 +229,24 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
         }
     }
 
-    function isUserNonceUsed(address user, uint value) public view returns (bool) {
+    function isUserNonceUsed(address user, uint256 value) public view returns (bool) {
         return BitMaps.get(userNonce[user], value);
     }
 
     function submitOrderOnBehalfOf(
         address user,
         OrderSide side,
-        uint price,
-        uint amount,
+        uint256 price,
+        uint256 amount,
         uint16 pairId,
         uint32 validUntil,
         TimeInForce tif,
-        uint networkFee,
-        uint nonce,
+        uint256 networkFee,
+        uint256 nonce,
         uint[] calldata orderIdsToCancel,
         uint[] calldata orderIdsToFill,
         uint8 v, bytes32 r, bytes32 s
-    ) public nonReentrant returns (uint) {
+    ) external nonReentrant returns (uint) {
         require(!isUserNonceUsed(user, nonce), "Nonce is used");
         BitMaps.set(userNonce[user], nonce);
 
@@ -271,29 +271,29 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
 
     function submitOrder(
         OrderSide side,
-        uint price,
-        uint amount,
+        uint256 price,
+        uint256 amount,
         uint16 pairId,
         uint32 validUntil,
         TimeInForce tif,
         uint[] calldata orderIdsToCancel,
         uint[] calldata orderIdsToFill
-    ) public nonReentrant returns (uint) {
+    ) external nonReentrant returns (uint) {
         return __submitOrder(msg.sender, side, price, amount, pairId, validUntil, tif, 0, orderIdsToCancel, orderIdsToFill);
     }
 
     function __submitOrder(
         address owner,
         OrderSide side,
-        uint price,
-        uint amount,
+        uint256 price,
+        uint256 amount,
         uint16 pairId,
         uint32 validUntil,
         TimeInForce tif,
-        uint networkFee,
+        uint256 networkFee,
         uint[] calldata orderIdsToCancel,
         uint[] calldata orderIdsToFill
-    ) private returns (uint orderId) {
+    ) private returns (uint256 orderId) {
         require(validUntil > block.timestamp, "Invalid validUntil");
         require(price > 0, "Invalid price");
         require(amount > 0, "Invalid amount");
@@ -318,7 +318,7 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
             spendingToken.transferFrom(owner, admin, networkFee);
         }
 
-        uint spendingAmount = userSpendingAmount[owner][spendingToken] + amount;
+        uint256 spendingAmount = userSpendingAmount[owner][spendingToken] + amount;
         require(spendingToken.balanceOf(owner) >= spendingAmount, "Not enough balance");
         require(spendingToken.allowance(owner, address(this)) >= spendingAmount, "Exceed allowance");
 
@@ -332,7 +332,7 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
         );
 
         if (orderIdsToFill.length > 0) {
-            for (uint i = 0; i < orderIdsToFill.length;) {
+            for (uint256 i; i < orderIdsToFill.length;) {
                 tryFillOrder(pair, order, activeOrders[orderIdsToFill[i]]);
                 if (order.unfilledAmt == 0) {
                     emit OrderClosedEvent(
@@ -374,12 +374,12 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
 
         //**! in case partial fill, unfilled amount must have notional value in quote >= minExecuteQuote
 
-        uint priceDecimalPow = 10 ** pair.priceDecimals;
+        uint256 priceDecimalPow = 10 ** pair.priceDecimals;
         if (takerOrder.side == OrderSide.BUY) {
             // if sell price > buy price, skip
             if (makerOrder.price > takerOrder.price) return false;
 
-            uint makerUnfilledBase = makerOrder.unfilledAmt;
+            uint256 makerUnfilledBase = makerOrder.unfilledAmt;
             if (pair.baseToken.balanceOf(makerOrder.owner) < makerUnfilledBase) {
                 closeOrderUnsafe(makerOrder, OrderCloseReason.OUT_OF_BALANCE);
                 return false;
@@ -390,8 +390,8 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
             }
 
 
-            uint takerUnfilledQuote = takerOrder.unfilledAmt;
-            (uint executeQuote, uint executeBase) = calcExecuteAmount(
+            uint256 takerUnfilledQuote = takerOrder.unfilledAmt;
+            (uint256 executeQuote, uint256 executeBase) = calcExecuteAmount(
                 takerUnfilledQuote, makerUnfilledBase, pair.minExecuteQuote,
                 makerOrder.price, priceDecimalPow
             );
@@ -400,8 +400,8 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
                 assert(executeBase == 0);
                 return false;
             }
-            uint quoteFee;
-            uint baseFee;
+            uint256 quoteFee;
+            uint256 baseFee;
             if (executeQuote >= pair.minQuoteChargeFee) {
                 if (pair.makerFeeBps > 0) {
                     quoteFee = Math.mulDiv(executeQuote, pair.makerFeeBps, 10000);
@@ -456,7 +456,7 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
             // if buy price < sell price, skip
             if (makerOrder.price < takerOrder.price) return false;
 
-            uint makerUnfilledQuote = makerOrder.unfilledAmt;
+            uint256 makerUnfilledQuote = makerOrder.unfilledAmt;
             if (pair.quoteToken.balanceOf(makerOrder.owner) < makerUnfilledQuote) {
                 closeOrderUnsafe(makerOrder, OrderCloseReason.OUT_OF_BALANCE);
                 return false;
@@ -466,9 +466,9 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
                 return false;
             }
 
-            uint takerUnfilledBase = takerOrder.unfilledAmt;
+            uint256 takerUnfilledBase = takerOrder.unfilledAmt;
 
-            (uint executeQuote, uint executeBase) = calcExecuteAmount(
+            (uint256 executeQuote, uint256 executeBase) = calcExecuteAmount(
                 makerUnfilledQuote, takerUnfilledBase, pair.minExecuteQuote,
                 makerOrder.price, priceDecimalPow
             );
@@ -478,8 +478,8 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
                 return false;
             }
 
-            uint quoteFee;
-            uint baseFee;
+            uint256 quoteFee;
+            uint256 baseFee;
             if (executeQuote >= pair.minQuoteChargeFee) {
                 if (pair.takerFeeBps > 0) {
                     quoteFee = Math.mulDiv(executeQuote, pair.takerFeeBps, 10000);
@@ -538,14 +538,14 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
     This logic helps avoiding ghost orders in order book (order with a very low amount that no one care).
     */
     function calcExecuteAmount(
-        uint unfilledQuote,
-        uint unfilledBase,
-        uint minExecuteQuote,
-        uint price,
-        uint priceDecimalPow
+        uint256 unfilledQuote,
+        uint256 unfilledBase,
+        uint256 minExecuteQuote,
+        uint256 price,
+        uint256 priceDecimalPow
     ) private pure returns (uint, uint) {
-        uint executeQuote = Math.mulDiv(unfilledBase, price, priceDecimalPow);
-        uint executeBase;
+        uint256 executeQuote = Math.mulDiv(unfilledBase, price, priceDecimalPow);
+        uint256 executeBase;
         if (executeQuote == unfilledQuote) {
             executeBase = unfilledBase;
         } else if (executeQuote > unfilledQuote) {
@@ -593,7 +593,7 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
         return EnumerableSet.values(userActiveOrderIds[who]);
     }
 
-    function getOrder(uint orderId) public view returns (Order memory) {
+    function getOrder(uint256 orderId) public view returns (Order memory) {
         return activeOrders[orderId];
     }
 
@@ -601,13 +601,13 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
         return userSpendingAmount[user][token];
     }
 
-    function cancelOrder(uint[] calldata orderIds) public nonReentrant {
+    function cancelOrder(uint[] calldata orderIds) external nonReentrant {
         cancelOrderInternal(msg.sender, orderIds);
     }
 
     // reentrancy safe
     function cancelOrderInternal(address caller, uint[] calldata orderIds) private {
-        for (uint i = 0; i < orderIds.length;) {
+        for (uint256 i; i < orderIds.length;) {
             Order storage order = activeOrders[orderIds[i]];
             if (order.id > 0) {
                 require(order.owner == caller, "Unauthorized");
@@ -618,7 +618,7 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
     }
 
     function closeOrderUnsafe(Order storage order, OrderCloseReason reason) private {
-        uint orderId = order.id;
+        uint256 orderId = order.id;
         address owner = order.owner;
 
         EnumerableSet.UintSet storage _userActiveOrderIds = userActiveOrderIds[owner];

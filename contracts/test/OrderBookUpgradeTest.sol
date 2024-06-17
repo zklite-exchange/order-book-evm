@@ -11,6 +11,6 @@ contract OrderBookUpgradeTest is OrderBook {
     }
 
     function onUpgrade() public reinitializer(2) {
-        console.log("%s %s", getName(), getVersion());
+        console.log("%s %s", this.getName(), this.getVersion());
     }
 }
