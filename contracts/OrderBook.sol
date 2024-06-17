@@ -114,12 +114,16 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
 
     address internal admin;
 
+    uint256[50] private __gap;
+
     /**
     * @custom:oz-upgrades-unsafe-allow constructor
     */
-    constructor(string memory name, string memory version) EIP712(name, version) initializer {
+    constructor(string memory name, string memory version) EIP712(name, version) {
         // name and version will be inlined into smart contract code
         // so they needn't to init via initializer function (initV1).
+
+        _disableInitializers();
     }
 
     function initV1(address _admin) public initializer {
@@ -163,11 +167,8 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardUpgradeable {
     ) external onlyAdmin returns (uint16 pairId) {
         require(takerFeeBps < 1000); // < 10%, avoid accidentally set high fee
         require(makerFeeBps < 1000); // < 10%, avoid accidentally set high fee
-        require(
-            priceDecimals < 200
-            && priceDecimals >= baseToken.decimals()
-            && priceDecimals >= quoteToken.decimals()
-        );
+        require(priceDecimals >= baseToken.decimals());
+        require(priceDecimals >= quoteToken.decimals());
 
         pairId = uint16(++pairCounts);
         pairs[pairId] = Pair(
