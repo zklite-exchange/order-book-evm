@@ -41,6 +41,7 @@ export async function deployProxy<T extends ethers.BaseContract>(
         const data = getInitializerData(contractFactory.interface, opts?.initArgs ?? [], opts?.initializer);
         const proxy = await deployContract<T>(owner, "TransparentUpgradeableProxy", [impl, owner.address, data]);
         const deploymentTransaction = proxy.deploymentTransaction();
+        await deploymentTransaction?.wait();
         await manifest.addProxy({
             kind: 'transparent',
             address: await proxy.getAddress(),
@@ -50,10 +51,13 @@ export async function deployProxy<T extends ethers.BaseContract>(
         });
         return contractFactory.attach(await proxy.getAddress()) as any;
     } else {
-        return (await hre.upgrades.deployProxy(await hre.ethers.getContractFactory(contractName), opts?.initArgs ?? [], {
+        const res = (await hre.upgrades.deployProxy(await hre.ethers.getContractFactory(contractName), opts?.initArgs ?? [], {
             ...opts,
             initialOwner: owner
-        })) as any;
+        }));
+
+        await res.deploymentTransaction()?.wait();
+        return res as any;
     }
 }
 
@@ -74,11 +78,14 @@ export async function upgradeProxy<T extends ethers.BaseContract>(
         const data = fn ? getInitializerData(contractFactory.interface, initArgs, fn) : '0x';
         const proxyAddress = await proxy.getAddress();
         const adminContractAddress = await getAdminAddress(hre.network.provider, proxyAddress);
-        await ProxyAdmin__factory.connect(adminContractAddress, admin)
+        const tx = await ProxyAdmin__factory.connect(adminContractAddress, admin)
             .upgradeAndCall(proxyAddress, impl, data);
+        await tx.wait();
         return contractFactory.attach(proxyAddress) as any;
     }
-    return await hre.upgrades.upgradeProxy(proxy, await hre.ethers.getContractFactory(newImpl, admin), opts) as any;
+    const res = await hre.upgrades.upgradeProxy(proxy, await hre.ethers.getContractFactory(newImpl, admin), opts) as any;
+    await res.deployTransaction?.wait();
+    return res;
 }
 
 export async function hreAccounts(): Promise<(HardhatEthersSigner | Wallet)[]> {
