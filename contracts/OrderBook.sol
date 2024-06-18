@@ -126,7 +126,7 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardTransient {
         _disableInitializers();
     }
 
-    function initV1(address _admin) public initializer {
+    function initV1(address _admin) external initializer {
         require(_admin != address(0), "Invalid admin address");
         admin = _admin;
     }
@@ -333,14 +333,15 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardTransient {
 
         if (orderIdsToFill.length > 0) {
             for (uint256 i; i < orderIdsToFill.length;) {
-                tryFillOrder(pair, order, activeOrders[orderIdsToFill[i]]);
-                if (order.unfilledAmt == 0) {
-                    emit OrderClosedEvent(
-                        orderId, owner, order.receivedAmt, amount, order.feeAmt,
-                        pairId, side, OrderCloseReason.FILLED
-                    );
+                if (tryFillOrder(pair, order, activeOrders[orderIdsToFill[i]])) {
+                    if (order.unfilledAmt == 0) {
+                        emit OrderClosedEvent(
+                            orderId, owner, order.receivedAmt, amount, order.feeAmt,
+                            pairId, side, OrderCloseReason.FILLED
+                        );
 
-                    return orderId;
+                        return orderId;
+                    }
                 }
 
                 unchecked {i++;}
@@ -581,19 +582,19 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardTransient {
         return EnumerableSet.values(activePairIds);
     }
 
-    function getPair(uint16 pairId) public view returns (Pair memory) {
+    function getPair(uint16 pairId) external view returns (Pair memory) {
         return pairs[pairId];
     }
 
-    function getActiveOrderIds() public view returns (uint256[] memory) {
+    function getActiveOrderIds() external view returns (uint256[] memory) {
         return EnumerableSet.values(activeOrderIds);
     }
 
-    function getActiveOrderIdsOf(address who) public view returns (uint256[] memory) {
+    function getActiveOrderIdsOf(address who) external view returns (uint256[] memory) {
         return EnumerableSet.values(userActiveOrderIds[who]);
     }
 
-    function getOrder(uint256 orderId) public view returns (Order memory) {
+    function getOrder(uint256 orderId) external view returns (Order memory) {
         return activeOrders[orderId];
     }
 
