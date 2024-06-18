@@ -7,6 +7,7 @@ import "@matterlabs/hardhat-zksync-deploy";
 import "@matterlabs/hardhat-zksync-solc";
 import "@matterlabs/hardhat-zksync-node";
 import '@openzeppelin/hardhat-upgrades';
+import "@nomicfoundation/hardhat-verify";
 import "solidity-coverage";
 import "hardhat-contract-sizer";
 import "hardhat-gas-reporter";
@@ -15,6 +16,10 @@ dotenv.config();
 
 
 const TEST_ZKSYNC = process.env.ZKSYNC_NODE === "1";
+
+if (TEST_ZKSYNC) {
+    import("@matterlabs/hardhat-zksync-upgradable");
+}
 
 const config: HardhatUserConfig = {
     solidity: {

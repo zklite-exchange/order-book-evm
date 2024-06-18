@@ -11,7 +11,8 @@ module.exports = tsEslint.config(
             "semi": "off",
             "@typescript-eslint/member-delimiter-style": "error",
             "@typescript-eslint/semi": "error",
-            "@typescript-eslint/no-explicit-any": "off"
+            "@typescript-eslint/no-explicit-any": "off",
+            "@typescript-eslint/ban-ts-comment": "off"
         },
     }
 );

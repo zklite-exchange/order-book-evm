@@ -3,88 +3,21 @@ import BN, {BigNumber} from "bignumber.js";
 import chai, {assert, expect} from "chai";
 import {DurationInputArg1, DurationInputArg2} from "moment";
 import moment from "moment/moment";
-import {ERC20, OrderBook, ProxyAdmin__factory} from "../typechain";
-import {Addressable, AddressLike, BaseContract, BigNumberish, Contract, ethers, TransactionResponse} from "ethers";
+import {ERC20, OrderBook} from "../typechain";
+import {Addressable, AddressLike, BigNumberish, ethers, TransactionResponse} from "ethers";
 import {Provider} from "zksync-ethers";
 import {loadFixture, time} from "@nomicfoundation/hardhat-network-helpers";
 import chaiBN from 'chai-bignumber';
 import {anyValue} from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 import RoundingMode = BigNumber.RoundingMode;
-import {
-    DeployProxyOptions,
-    getInitializerData, UpgradeProxyOptions
-} from "@openzeppelin/hardhat-upgrades/dist/utils";
-import {Manifest} from "@openzeppelin/upgrades-core";
 import {OrderCloseReason, OrderSide, TimeInForce} from "../index";
-import {getAdminAddress} from "@openzeppelin/upgrades-core/dist/eip-1967";
+import {deployContract, deployProxy, hreAccounts} from '../scripts/utils';
+import * as fs from "fs";
 
 BigNumber.config({EXPONENTIAL_AT: 1e+9});
 chai.use(chaiBN());
 
 
-
-async function deployContract<T extends ethers.BaseContract>(owner: any, contractName: string, args: any[] = []): Promise<T> {
-    let contract: T;
-    if (hre.network.zksync) {
-        hre.deployer.setWallet(owner);
-
-        contract = await hre.deployer.deploy(contractName, args) as any;
-    } else {
-        contract =  (await hre.ethers.deployContract(contractName, args, owner)) as any;
-    }
-    const gasUsed = (await contract.deploymentTransaction()?.wait())?.gasUsed;
-    console.log(`Deploy ${contractName} cost ${gasUsed} gas`);
-    return contract;
-}
-
-async function deployProxy<T extends ethers.BaseContract>(
-    owner: any, contractName: string,
-    opts?: DeployProxyOptions & {
-        initArgs?: any[];
-    }
-): Promise<T> {
-    if (hre.network.zksync) {
-        // to verify whether contract is upgradable safe, just test with @openzeppelin/hardhat-upgrades instead
-        const manifest = await Manifest.forNetwork(owner.provider);
-        const impl = await deployContract<T>(owner, contractName, opts?.constructorArgs);
-        const data = getInitializerData(impl.interface, opts?.initArgs ?? [], opts?.initializer);
-        const proxy = await deployContract<T>(owner, "TransparentUpgradeableProxy", [await impl.getAddress(), owner.address, data]);
-        await manifest.addProxy({
-            kind: 'transparent',
-            address: await proxy.getAddress(),
-            txHash: proxy.deploymentTransaction()?.hash,
-            ...{
-                deployTransaction: proxy.deploymentTransaction(),
-            },
-            ...proxy.deploymentTransaction()
-        });
-        return impl.attach(await proxy.getAddress()) as any;
-    } else {
-        return (await hre.upgrades.deployProxy(await hre.ethers.getContractFactory(contractName), opts?.initArgs ?? [], {
-            ...opts,
-            initialOwner: owner
-        })) as any;
-    }
-}
-
-export async function upgradeProxy<T extends ethers.BaseContract>(
-    admin: any, newImpl: string,
-    proxy: ethers.BaseContract,
-    opts: UpgradeProxyOptions
-): Promise<T> {
-    if (hre.network.zksync) {
-        const impl = await deployContract(admin, newImpl, opts.constructorArgs);
-        const fn = typeof opts.call == "string" ? opts.call : opts.call?.fn;
-        const initArgs = typeof opts.call == "string" ? [] : opts.call?.args ?? [];
-        const data = fn ? getInitializerData(impl.interface, initArgs, fn) : '0x';
-        const proxyAddress = await proxy.getAddress();
-        const adminContractAddress = await getAdminAddress(hre.network.provider, proxyAddress);
-        await ProxyAdmin__factory.connect(adminContractAddress,  admin)
-            .upgradeAndCall(proxyAddress, await impl.getAddress(), data);
-        return impl.attach(proxyAddress) as any;
-    }
-    return await hre.upgrades.upgradeProxy(proxy, await hre.ethers.getContractFactory(newImpl, admin), opts) as any;
-}
 
 export async function deployFakeTokens(owner: any) {
     const WETH = await deployContract<ERC20>(owner, "WETH");
@@ -107,16 +40,11 @@ function toBN(value: BNTypes): BN {
 }
 
 async function _setUpTest() {
-    let [alice, bob, admin] = hre.network.zksync
-        ? await hre.zksyncEthers.getWallets()
-        : await hre.ethers.getSigners();
-
     if (hre.network.zksync) {
-        const provider = new Provider((hre.network.config as any).url, undefined, {cacheTimeout: -1});
-        alice = alice.connect(provider) as any;
-        bob = bob.connect(provider) as any;
-        admin = admin.connect(provider) as any;
+        // remove the cache of zksync deployment on test-node, otherwise the test will crash at validateStoredDeployment
+        fs.unlinkSync(".upgradable/zkSync-era-test-node.json");
     }
+    const [alice, bob, admin] = await hreAccounts();
 
     const {WETH, USDC} = await deployFakeTokens(admin);
     const ethDecimalPow = `1e${Number(await WETH.decimals())}`;

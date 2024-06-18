@@ -1,7 +1,8 @@
-import {setUpTest, upgradeProxy} from "./utils";
+import {setUpTest} from "./utils";
 import {expect} from "chai";
 import {getImplementationAddress} from "@openzeppelin/upgrades-core/dist/eip-1967";
 import hre from "hardhat";
+import {upgradeProxy} from "../scripts/utils";
 
 describe("OrderBook - test upgradable", async () => {
     it("Test upgrade", async () => {
