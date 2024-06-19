@@ -14,7 +14,7 @@ import {ReentrancyGuardTransient} from "./ReentrancyGuard.sol";
 /// @custom:security-contact contact@zklite.io
 contract OrderBook is EIP712, Initializable, ReentrancyGuardTransient {
     bytes32 private constant SUBMIT_ORDER_TYPE_HASH =
-    keccak256("SubmitOrder(uint8 side,uint256 price,uint256 amount,uint16 pairId,uint32 validUntil,uint8 tif,uint256 networkFee,uint256 nonce,uint256[] orderIdsToCancel,uint256[] orderIdsToFill)");
+    keccak256("SubmitOrder(uint8 side,uint256 price,uint256 amount,uint16 pairId,uint32 validUntil,uint8 tif,uint256 networkFee,uint256 nonce,uint256[] orderIdsToCancel)");
 
     enum OrderSide {
         BUY, SELL
@@ -255,8 +255,7 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardTransient {
                 SUBMIT_ORDER_TYPE_HASH,
                 uint8(side), price, amount, pairId,
                 validUntil, uint8(tif), networkFee, nonce,
-                keccak256(abi.encodePacked(orderIdsToCancel)),
-                keccak256(abi.encodePacked(orderIdsToFill))
+                keccak256(abi.encodePacked(orderIdsToCancel))
             )
         );
         bytes32 hash = _hashTypedDataV4(structHash);

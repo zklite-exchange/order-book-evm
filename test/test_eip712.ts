@@ -51,9 +51,6 @@ describe("OrderBook - Blackbox testing EIP712 features", async () => {
                 }, {
                     "name": "orderIdsToCancel",
                     "type": "uint256[]"
-                }, {
-                    "name": "orderIdsToFill",
-                    "type": "uint256[]"
                 }
             ]
         }, {

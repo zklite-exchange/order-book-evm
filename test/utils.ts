@@ -42,7 +42,8 @@ function toBN(value: BNTypes): BN {
 async function _setUpTest() {
     if (hre.network.zksync) {
         // remove the cache of zksync deployment on test-node, otherwise the test will crash at validateStoredDeployment
-        fs.unlinkSync(".upgradable/zkSync-era-test-node.json");
+        const path = ".upgradable/zkSync-era-test-node.json";
+        fs.existsSync(path) && fs.unlinkSync(path);
     }
     const [alice, bob, admin] = await hreAccounts();
 
@@ -189,6 +190,7 @@ type ActionCancelOrder = {
 type ExpectReverted = {
     errorName?: string;
     message?: string;
+    withArgs?: any[];
 };
 
 type ExpectOrder = {
@@ -394,7 +396,11 @@ async function expectReverted(params: ExpectReverted, contract: { interface: any
     if (params.message) {
         await expect(tx).to.be.revertedWith(params.message);
     } else if (params.errorName) {
-        await expect(tx).to.be.revertedWithCustomError(contract, params.errorName);
+        const ex = expect(tx).to.be.revertedWithCustomError(contract, params.errorName);
+        if (params.withArgs) {
+            ex.withArgs(...params.withArgs);
+        }
+        await ex;
     } else {
         await expect(tx).to.be.reverted;
     }
