@@ -104,13 +104,13 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardTransient {
     uint256 internal orderCount;
     uint256 internal pairCounts;
 
-    mapping(uint256 => Order) internal activeOrders;
+    mapping(uint256 orderId => Order order) internal activeOrders;
     EnumerableSet.UintSet internal activeOrderIds;
-    mapping(uint256 => Pair) internal pairs;
+    mapping(uint256 pairId => Pair pair) internal pairs;
     EnumerableSet.UintSet internal activePairIds;
-    mapping(address => EnumerableSet.UintSet) internal userActiveOrderIds;
-    mapping(address => mapping(ERC20 => uint256)) internal userSpendingAmount;
-    mapping(address => BitMaps.BitMap) internal userNonce;
+    mapping(address userAddress => EnumerableSet.UintSet orderSet) internal userActiveOrderIds;
+    mapping(address userAddress => mapping(ERC20 token => uint256 spendingAmount)) internal userSpendingAmount;
+    mapping(address userAddress => BitMaps.BitMap nonces) internal userNonce;
 
     address internal admin;
 
@@ -577,7 +577,7 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardTransient {
         return (executeQuote, executeBase);
     }
 
-    function getActivePairIds() public view returns (uint256[] memory) {
+    function getActivePairIds() external view returns (uint256[] memory) {
         return EnumerableSet.values(activePairIds);
     }
 
@@ -597,7 +597,7 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardTransient {
         return activeOrders[orderId];
     }
 
-    function getSpendingAmount(address user, ERC20 token) public view returns (uint256) {
+    function getSpendingAmount(address user, ERC20 token) external view returns (uint256) {
         return userSpendingAmount[user][token];
     }
 

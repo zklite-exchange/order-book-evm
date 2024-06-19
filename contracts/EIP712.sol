@@ -66,7 +66,7 @@ abstract contract EIP712 is IERC5267 {
     /**
      * @dev Returns the domain separator for the current chain.
      */
-    function _domainSeparatorV4() internal view returns (bytes32) {
+    function _domainSeparatorV4() private view returns (bytes32) {
         return _buildDomainSeparator();
     }
 
@@ -97,7 +97,7 @@ abstract contract EIP712 is IERC5267 {
      * @dev See {IERC-5267}.
      */
     function eip712Domain()
-        public
+        external
         view
         virtual
         returns (
