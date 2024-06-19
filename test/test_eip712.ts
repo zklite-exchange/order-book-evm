@@ -17,7 +17,7 @@ describe("OrderBook - Blackbox testing EIP712 features", async () => {
         const pairId = load.defaultPairId;
         const tif = TimeInForce.GTC;
 
-        const signature = ethers.Signature.from(await (load.bob as Signer).signTypedData({
+        const signature = await (load.bob as Signer).signTypedData({
             name: "zkLite Order Book",
             version: "v1",
             chainId: hre.network.config.chainId ?? 260 /*zkSync*/,
@@ -64,30 +64,41 @@ describe("OrderBook - Blackbox testing EIP712 features", async () => {
             nonce: nonce,
             orderIdsToCancel: [],
             orderIdsToFill: []
-        }));
+        });
 
         await load.USDC.connect(load.bob).approve(load.OrderBookContract, load.uintMax);
 
-        // alice submit order on behalf of bob
+        // use signature of bob, but submit on behalf of admin should fail because signature mismatch
+        await expect(
+            load.OrderBookContract.connect(load.alice)
+                .submitOrderOnBehalfOf(
+                    load.admin.address,
+                    side, price, amount, pairId, validUntil,
+                    tif, networkFee, nonce, [], [],
+                    signature
+                )
+        ).to.be.revertedWith("Invalid signature");
+
+        // alice submit order on behalf of bob, should success
         await expect(
             load.OrderBookContract.connect(load.alice)
                 .submitOrderOnBehalfOf(
                     load.bob.address,
                     side, price, amount, pairId, validUntil,
                     tif, networkFee, nonce, [], [],
-                    signature.v, signature.r, signature.s
+                    signature
                 )
         ).to.emit(load.OrderBookContract, "NewOrderEvent")
             .withArgs(anyValue, load.bob.address, price, amount, pairId, side, validUntil);
 
-        // submit again should be fail, nonce is used
+        // use the same signature, submit again should be fail, nonce is used
         await expect(
             load.OrderBookContract.connect(load.alice)
                 .submitOrderOnBehalfOf(
                     load.bob.address,
                     side, price, amount, pairId, validUntil,
                     tif, networkFee, nonce, [], [],
-                    signature.v, signature.r, signature.s
+                    signature
                 )
         ).to.be.revertedWith("Nonce is used");
     });

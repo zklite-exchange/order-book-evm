@@ -5,7 +5,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {BitMaps} from "@openzeppelin/contracts/utils/structs/BitMaps.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 
 import {EIP712} from "./EIP712.sol";
@@ -245,7 +245,7 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardTransient {
         uint256 nonce,
         uint256[] calldata orderIdsToCancel,
         uint256[] calldata orderIdsToFill,
-        uint8 v, bytes32 r, bytes32 s
+        bytes memory signature
     ) external nonReentrant returns (uint256) {
         require(!isUserNonceUsed(user, nonce), "Nonce is used");
         BitMaps.set(userNonce[user], nonce);
@@ -259,9 +259,8 @@ contract OrderBook is EIP712, Initializable, ReentrancyGuardTransient {
             )
         );
         bytes32 hash = _hashTypedDataV4(structHash);
-        address signer = ECDSA.recover(hash, v, r, s);
 
-        if (signer != user) {
+        if (!SignatureChecker.isValidSignatureNow(user, hash, signature)) {
             revert("Invalid signature");
         }
 
