@@ -13,5 +13,4 @@ era_test_node.log
 coverage.json
 dist
 *.tgz
-.openzeppelin
 .upgradable/zkSync-era-test-node.json

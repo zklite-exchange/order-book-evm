@@ -2,3 +2,6 @@
 !dist/*
 !contracts/*
 !index.ts
+!artifacts
+!artifacts-zk
+!typechain
