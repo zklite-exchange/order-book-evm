@@ -1,6 +1,8 @@
-import {OrderBookContractName, OrderBookContractVersion} from "../index";
 import {getImplementationAddress} from "@openzeppelin/upgrades-core/dist/eip-1967";
 import {task} from "hardhat/config";
+
+export const OrderBookContractName = "zkLite Order Book";
+export const OrderBookContractVersion = "v1";
 
 task("deployOrderBook", async (_, hre) => {
     const {deployProxy, hreAccounts} = await import("./utils");

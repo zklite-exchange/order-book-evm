@@ -1,6 +1,8 @@
-import {AddressLike, BigNumberish, ethers, Signer} from "ethers";
+import {BigNumberish, ethers} from "ethers";
+import type {TypedDataField} from "ethers/src.ts/hash";
 
-export {OrderBook as IOrderBook, OrderBook__factory as OrderBookFactory} from './typechain';
+import {OrderBook as IOrderBook, OrderBook__factory as OrderBookFactory} from "./typechain";
+export {IOrderBook, OrderBookFactory};
 
 export enum OrderSide {
     BUY = 0,
@@ -15,13 +17,48 @@ export enum TimeInForce {
     GTC = 0, IOK, FOK
 }
 
-export const OrderBookContractName = "zkLite Order Book";
-export const OrderBookContractVersion = "v1";
-export const OrderBookContractAddress = "";
 
-async function signSubmitOrder(params: {
+export const OrderBookContractAddress = {
+    sepolia: "0xa1Fe9bE0043A40BFd6703A34106c522CD4Bb9f95",
+    zkSyncSepolia: "0x319B526539a6c6311D1ed104Db38793657d0968F",
+};
+
+export const SUBMIT_ORDER_TYPES: Record<string, Array<TypedDataField>> = {
+    "SubmitOrder": [
+        {
+            "name": "side",
+            "type": "uint8"
+        }, {
+            "name": "price",
+            "type": "uint256"
+        }, {
+            "name": "amount",
+            "type": "uint256"
+        }, {
+            "name": "pairId",
+            "type": "uint16"
+        }, {
+            "name": "validUntil",
+            "type": "uint32"
+        }, {
+            "name": "tif",
+            "type": "uint8"
+        }, {
+            "name": "networkFee",
+            "type": "uint256"
+        }, {
+            "name": "nonce",
+            "type": "uint256"
+        }, {
+            "name": "orderIdsToCancel",
+            "type": "uint256[]"
+        }
+    ]
+};
+
+export async function signSubmitOrder(params: {
     signer: ethers.Signer;
-    chainId: number;
+    contract: IOrderBook;
     side: OrderSide;
     price: BigNumberish;
     amount: BigNumberish;
@@ -31,48 +68,14 @@ async function signSubmitOrder(params: {
     networkFee: BigNumberish;
     nonce: BigNumberish;
     orderIdsToCancel: BigNumberish[];
-    orderIdsToFill: BigNumberish[];
 }) {
-    ethers.Signature.from(await params.signer.signTypedData({
-        name: OrderBookContractName,
-        version: OrderBookContractVersion,
-        chainId: params.chainId,
-        verifyingContract: OrderBookContractAddress,
-    }, {
-        "SubmitOrder": [
-            {
-                "name": "side",
-                "type": "uint8"
-            }, {
-                "name": "price",
-                "type": "uint256"
-            }, {
-                "name": "amount",
-                "type": "uint256"
-            }, {
-                "name": "pairId",
-                "type": "uint16"
-            }, {
-                "name": "validUntil",
-                "type": "uint32"
-            }, {
-                "name": "tif",
-                "type": "uint8"
-            }, {
-                "name": "networkFee",
-                "type": "uint256"
-            }, {
-                "name": "nonce",
-                "type": "uint256"
-            }, {
-                "name": "orderIdsToCancel",
-                "type": "uint256[]"
-            }, {
-                "name": "orderIdsToFill",
-                "type": "uint256[]"
-            }
-        ]
-    }, {
+    const domain = await params.contract.eip712Domain();
+    return await params.signer.signTypedData({
+        name: domain.name,
+        version: domain.version,
+        chainId: domain.chainId,
+        verifyingContract: domain.verifyingContract,
+    }, SUBMIT_ORDER_TYPES, {
         side: params.side,
         price: params.price,
         amount: params.amount,
@@ -81,7 +84,6 @@ async function signSubmitOrder(params: {
         tif: params.tif,
         networkFee: params.networkFee,
         nonce: params.nonce,
-        orderIdsToCancel: params.orderIdsToCancel,
-        orderIdsToFill: params.orderIdsToFill
-    }));
+        orderIdsToCancel: params.orderIdsToCancel
+    });
 }

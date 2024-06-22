@@ -8,11 +8,10 @@
   "scripts": {
     "clean": "./clean.sh",
     "compileSol": "hardhat compile",
-    "compileSolZk": "ZKSYNC_NODE=1 hardhat compile",
-    "cleanBuild": "yarn run clean && yarn run compileSol && yarn run compileSolZk && tsup",
+    "compileSolZk": "hardhat compile --network zkSyncMemoryNode",
     "test": "hardhat test",
     "testZk": "hardhat test --network zkSyncMemoryNode",
-    "abc": "ZKSYNC_NODE=1 hardhat --network zkSyncSepoliaTestnet run scripts/deploy.ts"
+    "prepare": "yarn run compileSol && yarn run compileSolZk && tsup"
   },
   "dependencies": {
     "ethers": "^6.1.0"
