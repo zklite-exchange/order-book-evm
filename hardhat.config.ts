@@ -7,6 +7,8 @@ import "@matterlabs/hardhat-zksync-ethers";
 import "@matterlabs/hardhat-zksync-deploy";
 import "@matterlabs/hardhat-zksync-solc";
 import "@matterlabs/hardhat-zksync-node";
+// noinspection ES6UnusedImports
+import type {} from "@openzeppelin/hardhat-upgrades";
 import "hardhat-contract-sizer";
 import "zksync-ethers";
 import dotenv from "dotenv";
@@ -20,7 +22,7 @@ import {
 import {ZkSyncNodePluginError} from "@matterlabs/hardhat-zksync-node/dist/errors";
 import {START_PORT, TASK_NODE_ZKSYNC_DOWNLOAD_BINARY} from "@matterlabs/hardhat-zksync-node/dist/constants";
 import {JsonRpcServer} from "@matterlabs/hardhat-zksync-node/dist/server";
-
+import "./scripts/deploy";
 
 dotenv.config();
 

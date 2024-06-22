@@ -1,0 +1,403 @@
+{
+  "manifestVersion": "3.2",
+  "proxies": [
+    {
+      "address": "0xa1Fe9bE0043A40BFd6703A34106c522CD4Bb9f95",
+      "txHash": "0xa9d76d23d24048760f323a1ea9097b5599e5a9899d8a4379a1469ca096ca8ddf",
+      "remoteDeploymentId": "83ffa588-5783-48ca-9678-f7e063ce6938",
+      "kind": "transparent"
+    }
+  ],
+  "impls": {
+    "18943811d0b630d5c0b5df7b6439b5b000b4366c9cebf13b865b82dd36c03a21": {
+      "address": "0xd8A13dCF03FC06c402A2d3B37D22e27890fF2F85",
+      "txHash": "0xab4929fc312caf98c622e2b4838b5874dc507babaf7bfc8ef8ffe9f87986d571",
+      "remoteDeploymentId": "40f90db2-2120-458b-88e3-0abf068d639a",
+      "layout": {
+        "solcVersion": "0.8.25",
+        "storage": [
+          {
+            "label": "orderCount",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_uint256",
+            "contract": "OrderBook",
+            "src": "contracts/OrderBook.sol:104"
+          },
+          {
+            "label": "pairCounts",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_uint256",
+            "contract": "OrderBook",
+            "src": "contracts/OrderBook.sol:105"
+          },
+          {
+            "label": "activeOrders",
+            "offset": 0,
+            "slot": "2",
+            "type": "t_mapping(t_uint256,t_struct(Order)5415_storage)",
+            "contract": "OrderBook",
+            "src": "contracts/OrderBook.sol:107"
+          },
+          {
+            "label": "activeOrderIds",
+            "offset": 0,
+            "slot": "3",
+            "type": "t_struct(UintSet)4955_storage",
+            "contract": "OrderBook",
+            "src": "contracts/OrderBook.sol:108"
+          },
+          {
+            "label": "pairs",
+            "offset": 0,
+            "slot": "5",
+            "type": "t_mapping(t_uint256,t_struct(Pair)5436_storage)",
+            "contract": "OrderBook",
+            "src": "contracts/OrderBook.sol:109"
+          },
+          {
+            "label": "activePairIds",
+            "offset": 0,
+            "slot": "6",
+            "type": "t_struct(UintSet)4955_storage",
+            "contract": "OrderBook",
+            "src": "contracts/OrderBook.sol:110"
+          },
+          {
+            "label": "userActiveOrderIds",
+            "offset": 0,
+            "slot": "8",
+            "type": "t_mapping(t_address,t_struct(UintSet)4955_storage)",
+            "contract": "OrderBook",
+            "src": "contracts/OrderBook.sol:111"
+          },
+          {
+            "label": "userSpendingAmount",
+            "offset": 0,
+            "slot": "9",
+            "type": "t_mapping(t_address,t_mapping(t_contract(ERC20)1683,t_uint256))",
+            "contract": "OrderBook",
+            "src": "contracts/OrderBook.sol:112"
+          },
+          {
+            "label": "userNonce",
+            "offset": 0,
+            "slot": "10",
+            "type": "t_mapping(t_address,t_struct(BitMap)4342_storage)",
+            "contract": "OrderBook",
+            "src": "contracts/OrderBook.sol:113"
+          },
+          {
+            "label": "admin",
+            "offset": 0,
+            "slot": "11",
+            "type": "t_address",
+            "contract": "OrderBook",
+            "src": "contracts/OrderBook.sol:115"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "12",
+            "type": "t_array(t_uint256)50_storage",
+            "contract": "OrderBook",
+            "src": "contracts/OrderBook.sol:117"
+          }
+        ],
+        "types": {
+          "t_bool": {
+            "label": "bool",
+            "numberOfBytes": "1"
+          },
+          "t_struct(InitializableStorage)318_storage": {
+            "label": "struct Initializable.InitializableStorage",
+            "members": [
+              {
+                "label": "_initialized",
+                "type": "t_uint64",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "_initializing",
+                "type": "t_bool",
+                "offset": 8,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_uint64": {
+            "label": "uint64",
+            "numberOfBytes": "8"
+          },
+          "t_address": {
+            "label": "address",
+            "numberOfBytes": "20"
+          },
+          "t_array(t_bytes32)dyn_storage": {
+            "label": "bytes32[]",
+            "numberOfBytes": "32"
+          },
+          "t_array(t_uint256)50_storage": {
+            "label": "uint256[50]",
+            "numberOfBytes": "1600"
+          },
+          "t_bytes32": {
+            "label": "bytes32",
+            "numberOfBytes": "32"
+          },
+          "t_contract(ERC20)1683": {
+            "label": "contract ERC20",
+            "numberOfBytes": "20"
+          },
+          "t_enum(OrderSide)5298": {
+            "label": "enum OrderBook.OrderSide",
+            "members": [
+              "BUY",
+              "SELL"
+            ],
+            "numberOfBytes": "1"
+          },
+          "t_mapping(t_address,t_mapping(t_contract(ERC20)1683,t_uint256))": {
+            "label": "mapping(address => mapping(contract ERC20 => uint256))",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_struct(BitMap)4342_storage)": {
+            "label": "mapping(address => struct BitMaps.BitMap)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_struct(UintSet)4955_storage)": {
+            "label": "mapping(address => struct EnumerableSet.UintSet)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_bytes32,t_uint256)": {
+            "label": "mapping(bytes32 => uint256)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_contract(ERC20)1683,t_uint256)": {
+            "label": "mapping(contract ERC20 => uint256)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_struct(Order)5415_storage)": {
+            "label": "mapping(uint256 => struct OrderBook.Order)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_struct(Pair)5436_storage)": {
+            "label": "mapping(uint256 => struct OrderBook.Pair)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_uint256)": {
+            "label": "mapping(uint256 => uint256)",
+            "numberOfBytes": "32"
+          },
+          "t_struct(BitMap)4342_storage": {
+            "label": "struct BitMaps.BitMap",
+            "members": [
+              {
+                "label": "_data",
+                "type": "t_mapping(t_uint256,t_uint256)",
+                "offset": 0,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(Order)5415_storage": {
+            "label": "struct OrderBook.Order",
+            "members": [
+              {
+                "label": "id",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "owner",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "price",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "amount",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "3"
+              },
+              {
+                "label": "unfilledAmt",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "4"
+              },
+              {
+                "label": "receivedAmt",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "5"
+              },
+              {
+                "label": "feeAmt",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "6"
+              },
+              {
+                "label": "pairId",
+                "type": "t_uint16",
+                "offset": 0,
+                "slot": "7"
+              },
+              {
+                "label": "side",
+                "type": "t_enum(OrderSide)5298",
+                "offset": 2,
+                "slot": "7"
+              },
+              {
+                "label": "validUntil",
+                "type": "t_uint40",
+                "offset": 3,
+                "slot": "7"
+              }
+            ],
+            "numberOfBytes": "256"
+          },
+          "t_struct(Pair)5436_storage": {
+            "label": "struct OrderBook.Pair",
+            "members": [
+              {
+                "label": "baseToken",
+                "type": "t_contract(ERC20)1683",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "quoteToken",
+                "type": "t_contract(ERC20)1683",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "minExecuteQuote",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "minQuoteChargeFee",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "3"
+              },
+              {
+                "label": "id",
+                "type": "t_uint16",
+                "offset": 0,
+                "slot": "4"
+              },
+              {
+                "label": "takerFeeBps",
+                "type": "t_uint16",
+                "offset": 2,
+                "slot": "4"
+              },
+              {
+                "label": "makerFeeBps",
+                "type": "t_uint16",
+                "offset": 4,
+                "slot": "4"
+              },
+              {
+                "label": "priceDecimals",
+                "type": "t_uint8",
+                "offset": 6,
+                "slot": "4"
+              },
+              {
+                "label": "active",
+                "type": "t_bool",
+                "offset": 7,
+                "slot": "4"
+              }
+            ],
+            "numberOfBytes": "160"
+          },
+          "t_struct(Set)4483_storage": {
+            "label": "struct EnumerableSet.Set",
+            "members": [
+              {
+                "label": "_values",
+                "type": "t_array(t_bytes32)dyn_storage",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "_positions",
+                "type": "t_mapping(t_bytes32,t_uint256)",
+                "offset": 0,
+                "slot": "1"
+              }
+            ],
+            "numberOfBytes": "64"
+          },
+          "t_struct(UintSet)4955_storage": {
+            "label": "struct EnumerableSet.UintSet",
+            "members": [
+              {
+                "label": "_inner",
+                "type": "t_struct(Set)4483_storage",
+                "offset": 0,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "64"
+          },
+          "t_uint16": {
+            "label": "uint16",
+            "numberOfBytes": "2"
+          },
+          "t_uint256": {
+            "label": "uint256",
+            "numberOfBytes": "32"
+          },
+          "t_uint40": {
+            "label": "uint40",
+            "numberOfBytes": "5"
+          },
+          "t_uint8": {
+            "label": "uint8",
+            "numberOfBytes": "1"
+          }
+        },
+        "namespaces": {
+          "erc7201:openzeppelin.storage.Initializable": [
+            {
+              "contract": "Initializable",
+              "label": "_initialized",
+              "type": "t_uint64",
+              "src": "@openzeppelin/contracts/proxy/utils/Initializable.sol:69",
+              "offset": 0,
+              "slot": "0"
+            },
+            {
+              "contract": "Initializable",
+              "label": "_initializing",
+              "type": "t_bool",
+              "src": "@openzeppelin/contracts/proxy/utils/Initializable.sol:73",
+              "offset": 8,
+              "slot": "0"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

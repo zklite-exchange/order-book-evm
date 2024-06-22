@@ -11,6 +11,6 @@
     "moduleResolution": "Node",
     "noImplicitAny": false
   },
-  "include": ["./test", "./typechain", "./scripts"],
+  "include": ["./test", "./typechain", "./scripts", "index.ts", "playground.ts"],
   "files": ["./hardhat.config.ts"]
 }
